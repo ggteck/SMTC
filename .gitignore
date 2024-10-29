@@ -3,3 +3,4 @@
 *.xlsx
 *.code-workspace
 *.pkl
+scripts/.env
