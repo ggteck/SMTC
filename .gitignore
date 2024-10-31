@@ -4,3 +4,4 @@
 *.code-workspace
 *.pkl
 scripts/.env
+scripts/requirements.txt
