@@ -4,3 +4,8 @@
 *.code-workspace
 *.pkl
 scripts/requirements.txt
+*.msg
+*.xlsm
+*.qmd
+*.png
+*.svg
