@@ -7,7 +7,7 @@ jupyter-lab --version >nul 2>&1
 REM If the last command (jupyter-lab --version) failed, install JupyterLab
 if errorlevel 1 (
     echo JupyterLab is not installed. Installing now...
-    pip install jupyterlab
+    pip install jupyterlab XlsxWriter PyGithub pandas openpyxl ipywidgets fqdn tqdm
     echo JupyterLab has been installed.
 )
 
