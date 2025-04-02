@@ -16,6 +16,8 @@
 
 # %% [markdown]
 # # Seguimiento a embarques
+# - V29. 2025-04-01
+#     - Calculo de TAT Category
 # - V28. 2025-03-31
 #     - Correccion para columnas del Tracker, quitar ceros en algunas col, eliminar _c1 y _c2 de status
 # - V27. 2025-03-30
@@ -2517,18 +2519,11 @@ wb_oor=load_workbook(path_oor,data_only=True)
 ws_oor=wb_oor['OOR']
 if ws_oor['A1'].value is None:
     show_popup_message(f"Favor de Guardar el archivo {path_oor}")
-    wb.close()
     raise SystemExit()
 
 dict_oor=get_worksheet_df(ws_oor,'Family ',data_only=True)
 df_oor=dict_oor['df']
-
-
-
-# %%
-
 df_oor_stat=rename_columns(df_oor,df_col_rel,table_from='OOR Report',sheet_from='OOR')
-
 df_oor_stat=df_oor_stat.copy()
 
 # Tipo de filtros
@@ -2723,9 +2718,23 @@ df_oor.loc[df_oor['oor_status']=='Shortage','latest_commit_date']=df_oor.loc[df_
 df_oor.loc[df_oor['oor_status']=='In shipping plan_c1','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='In shipping plan_c1','estimated_move_date_cuu_2_days']
 df_oor.loc[df_oor['oor_status']=='In shipping plan_c2','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='In shipping plan_c2','max_date_ship_c2']
 df_oor['oor_status']=df_oor['oor_status'].str.replace('_c1','').str.replace('_c2','')
-for idx,row in df_oor[['oor_status','Status_cell','latest_commit_date','latest_commit_date_cell']].iterrows():
+
+# Update TAT Category
+
+df_tat=df_oor_stat[['po','modelo','LineNumber','po_active_all_po_shipped_complete_category']].copy()
+df_tat['tat_cat']=''
+df_tat.loc[df_tat['po_active_all_po_shipped_complete_category']=='pending ship complete','tat_cat']='Open'
+df_tat.loc[df_tat['po_active_all_po_shipped_complete_category']=='po ship complete','tat_cat']='Closed'
+df_tat=df_tat[['po','modelo','LineNumber','tat_cat']].drop_duplicates(subset=['po','modelo','LineNumber'])
+if 'tat_cat' in df_oor.columns:
+    df_oor.drop(columns=['tat_cat'],inplace=True)
+df_oor=df_oor.merge(df_tat,how='left',on=['po','modelo','LineNumber'])
+
+for idx,row in df_oor[['oor_status','Status_cell','latest_commit_date','latest_commit_date_cell','tat_cat','TAT Category_cell']].iterrows():
     ws_oor[row['Status_cell']]=row['oor_status']
     ws_oor[row['latest_commit_date_cell']]=row['latest_commit_date']
+    ws_oor[row['TAT Category_cell']]=row['tat_cat']
 
 save_wb(wb_oor,path_oor)
 os.startfile(path_oor)
+
