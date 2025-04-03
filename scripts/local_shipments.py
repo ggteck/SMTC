@@ -16,6 +16,8 @@
 
 # %% [markdown]
 # # Seguimiento a embarques
+# - V30. 2025-04-02
+#     - Conservar fechas del OOR
 # - V29. 2025-04-01
 #     - Calculo de TAT Category
 # - V28. 2025-03-31
@@ -832,7 +834,7 @@ def extract_selected_sheets(xlsx_file, sheets_to_keep, keep_original=True):
     # Get file directory and base name
     file_dir = os.path.dirname(xlsx_file)
     file_name = os.path.basename(xlsx_file).replace(".xlsx", "")
-    shutil.copy(xlsx_file,os.path.join(file_dir,f"{file_name}_cpy.xlsx"))
+    # shutil.copy(xlsx_file,os.path.join(file_dir,f"{file_name}_cpy.xlsx"))
     
     # Temporary folder for extracted contents (working folder)
     temp_dir = os.path.join(file_dir, "temp_xlsx")
@@ -1695,21 +1697,21 @@ if (len(df_korrus_data_new)>0) & (checkbox.value):
     df_edi=append_df_to_df(df_new=df_korrus_data_new,df_old=df_edi,table='EDI Master',keys=edi_keys)
 
 
-# Obtener fechas de llegada del OOR viejo
-path_oor_old=get_path(file_selectors,'OOR')
-if checkbox_oor_dates.value:
-    df_oor_old=load_excel_with_header_key(path_oor_old,sheet_name='OOR',key_text='EDI Received')
-    check_mandatory_cols(df_oor_old.columns,'OOR')
-    df_oor_old=rename_columns(df_oor_old,df_col_rel,table_from='OOR Report',sheet_from='OOR',table_to='ELP Master',sheet_to='EDI Master')
-    column_edi_rec='EDI Received'
-    df_oor_old=df_oor_old[['PO','ProductService ID','LineNumber',column_edi_rec]].drop_duplicates(['PO','ProductService ID','LineNumber'])
-    # df_edi=read_excel(path_ship_elp_master,sheet_name='EDI Master')
-    if not column_edi_rec in df_edi.columns:
-        df_edi[column_edi_rec]=''
-    df_edi = df_edi.merge(df_oor_old, how='left', on=['PO', 'ProductService ID', 'LineNumber'], suffixes=('_df1', '_df2'),sort=False)
-    df_edi[column_edi_rec] = df_edi[f'{column_edi_rec}_df1']
-    df_edi.loc[df_edi[column_edi_rec].isnull() | (df_edi[column_edi_rec] == ''), column_edi_rec] = df_edi[f'{column_edi_rec}_df2']
-    df_edi.drop(columns=[f'{column_edi_rec}_df1',f'{column_edi_rec}_df2'],inplace=True)
+# # Obtener fechas de llegada del OOR viejo
+# path_oor_old=get_path(file_selectors,'OOR')
+# if checkbox_oor_dates.value:
+#     df_oor_old=load_excel_with_header_key(path_oor_old,sheet_name='OOR',key_text='EDI Received')
+#     check_mandatory_cols(df_oor_old.columns,'OOR')
+#     df_oor_old=rename_columns(df_oor_old,df_col_rel,table_from='OOR Report',sheet_from='OOR',table_to='ELP Master',sheet_to='EDI Master')
+#     column_edi_rec='EDI Received'
+#     df_oor_old=df_oor_old[['PO','ProductService ID','LineNumber',column_edi_rec]].drop_duplicates(['PO','ProductService ID','LineNumber'])
+#     # df_edi=read_excel(path_ship_elp_master,sheet_name='EDI Master')
+#     if not column_edi_rec in df_edi.columns:
+#         df_edi[column_edi_rec]=''
+#     df_edi = df_edi.merge(df_oor_old, how='left', on=['PO', 'ProductService ID', 'LineNumber'], suffixes=('_df1', '_df2'),sort=False)
+#     df_edi[column_edi_rec] = df_edi[f'{column_edi_rec}_df1']
+#     df_edi.loc[df_edi[column_edi_rec].isnull() | (df_edi[column_edi_rec] == ''), column_edi_rec] = df_edi[f'{column_edi_rec}_df2']
+#     df_edi.drop(columns=[f'{column_edi_rec}_df1',f'{column_edi_rec}_df2'],inplace=True)
 
 # Shipment transactions, lo embarcado al cliente
 path_ship_cust_new=get_path(file_selectors,'Shipment transactions')
@@ -1853,6 +1855,7 @@ df_edi_combined=merge_additional_fields(df_assigned_wo,
                            key=['po','modelo','LineNumber'])
 # Add WO field
 df_wo_qty=df_assigned_wo[['po','modelo','LineNumber','WO','AvailQuantity']]
+df_wo_qty['AvailQuantity']=df_wo_qty['AvailQuantity'].fillna(0)
 df_wo_qty['WO']=df_wo_qty['WO'].astype(int).astype(str) + ' TotQty: ' + df_wo_qty['AvailQuantity'].astype(int).astype(str) + '.'
 df_wo_qty=df_wo_qty.groupby(['po','modelo','LineNumber']).agg({
     'WO': ' '.join
@@ -1991,20 +1994,21 @@ wb_oor_old=load_workbook(path_oor_old)
 
 ws_oor_old=wb_oor_old['OOR']
 dict_oor_old=get_worksheet_df(ws_oor_old,'Family')
-
-
-check_mandatory_cols(dict_oor_old['df'].columns,'OOR')
+df_oor_old=dict_oor_old['df']
+check_mandatory_cols(df_oor_old.columns,'OOR')
 # Part of the OOR that will be updated, we will remove duplicates from this part
-df_oor_to_update=dict_oor_old['df'][dict_oor_old['df']['POUS Date'] >= pd.to_datetime(datepicker_freeze.value)]
-# This part will be kept as is, duplicates are allowed
-dict_oor_old['df']=dict_oor_old['df'][dict_oor_old['df']['POUS Date'] < pd.to_datetime(datepicker_freeze.value)]
-except_columns=df_columns[(~df_columns['user_column'].isna())&(df_columns['sheet']=='OOR')]['column_name'].to_list()
 key_cols=['PurchaseOrder','ProductServiceID','LineNumber','AssignedDropZone']
+df_edi_rec_dates=df_oor_old[key_cols+['EDI Received']].drop_duplicates(key_cols).copy()
+
+df_oor_to_update=df_oor_old[df_oor_old['POUS Date'] >= pd.to_datetime(datepicker_freeze.value)]
+# This part will be kept as is, duplicates are allowed
+df_oor_old=df_oor_old[df_oor_old['POUS Date'] < pd.to_datetime(datepicker_freeze.value)]
+except_columns=df_columns[(~df_columns['user_column'].isna())&(df_columns['sheet']=='OOR')]['column_name'].to_list()
 df_oor_to_update.drop_duplicates(subset=key_cols,inplace=True)
 df_oor[['Comment','Status']]=df_oor[['Comment','Status']].fillna('')
 df_oor_to_update=update_dataframe(df_oor_to_update,df_oor.fillna(0),key_cols,exceptions=except_columns)
-dict_oor_old['df']=pd.concat([dict_oor_old['df'],df_oor_to_update])
-dict_oor_old['df'].reset_index(drop=True,inplace=True)
+df_oor_old=pd.concat([df_oor_old,df_oor_to_update])
+df_oor_old.reset_index(drop=True,inplace=True)
 path_oh_max=get_path(file_selectors,'OH Max')
 
 if path_oh_max!="Not selected":
@@ -2013,10 +2017,15 @@ if path_oh_max!="Not selected":
     df_oh_max=rename_columns(df_oh_max,df_col_rel,table_from='OH Max',sheet_from='only',table_to='OOR Report',sheet_to='OOR')
     df_oh_max=df_oh_max.groupby(['ProductServiceID']).sum('OH MAX')
     df_oh_max.reset_index(inplace=True)
-    if 'OH MAX' in dict_oor_old['df'].columns:
-        dict_oor_old['df'].drop(columns='OH MAX',inplace=True)
-    dict_oor_old['df']=dict_oor_old['df'].merge(df_oh_max,how='left',on='ProductServiceID')
-    dict_oor_old['df']['OH MAX'].fillna(0,inplace=True)
+    if 'OH MAX' in df_oor_old.columns:
+        df_oor_old.drop(columns='OH MAX',inplace=True)
+    df_oor_old=df_oor_old.merge(df_oh_max,how='left',on='ProductServiceID')
+    df_oor_old['OH MAX'].fillna(0,inplace=True)
+df_oor_old=df_oor_old.merge(df_edi_rec_dates,how='left',on=key_cols,suffixes=('', '_new'))
+df_oor_old.loc[df_oor_old['EDI Received'].isna(),'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received'].isna(),'EDI Received_new']
+df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received_new']
+df_oor_old.drop(columns='EDI Received_new',inplace=True)
+dict_oor_old['df']=df_oor_old
 
 ws_oor_old=update_sheet(dict_oor_old,ws_oor_old)
 # Value A1=1 is just to check later if formulas are evaluated
