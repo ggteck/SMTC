@@ -1,6 +1,7 @@
 
 *.csv
 *.xlsx
+*xlsb
 *.code-workspace
 *.pkl
 scripts/requirements.txt
