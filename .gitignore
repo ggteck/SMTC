@@ -1,4 +1,3 @@
-
 *.csv
 *.xlsx
 *.xlsb
@@ -11,3 +10,4 @@ scripts/requirements.txt
 *.png
 *.svg
 scripts/.ipynb_checkpoints/scripts_catalog-checkpoint.ipynb
+PowerBi
