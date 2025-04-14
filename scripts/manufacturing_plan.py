@@ -1,5 +1,5 @@
 # Manufacturing plan
-# - V1. 2025-04-07
+# - V1. 2025-04-10
 #     - Version inicial, calculo de plan de produccion
 
 import streamlit as st

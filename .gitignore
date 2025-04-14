@@ -11,3 +11,4 @@ scripts/requirements.txt
 *.svg
 scripts/.ipynb_checkpoints/scripts_catalog-checkpoint.ipynb
 PowerBi
+*.pyc
