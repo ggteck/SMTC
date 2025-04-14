@@ -1613,7 +1613,7 @@ save_df(df_korrus_data_new,filepath=output_paths['path_korrus_data'],sheet_name=
 # - Hay tres reportes EDI Master, Shipped to Cust, Shipped to ELP
 # - Si hay archivos seleccionados se integran a estos reportes
 
-# %% [markdown]
+
 # ### Consolidar
 # - Korrus_data --> EDI Master
 # - InventoryStage --> Shipment to ELP
@@ -1678,22 +1678,6 @@ if (len(df_korrus_data_new)>0) & (checkbox.value):
     edi_keys=['PO','LineNumber','ProductService ID','AssignedDropZone']
     df_edi=append_df_to_df(df_new=df_korrus_data_new,df_old=df_edi,table='EDI Master',keys=edi_keys)
 
-
-# # Obtener fechas de llegada del OOR viejo
-# path_oor_old=get_path(file_selectors,'OOR')
-# if checkbox_oor_dates.value:
-#     df_oor_old=load_excel_with_header_key(path_oor_old,sheet_name='OOR',key_text='EDI Received')
-#     check_mandatory_cols(df_oor_old.columns,'OOR')
-#     df_oor_old=rename_columns(df_oor_old,df_col_rel,table_from='OOR Report',sheet_from='OOR',table_to='ELP Master',sheet_to='EDI Master')
-#     column_edi_rec='EDI Received'
-#     df_oor_old=df_oor_old[['PO','ProductService ID','LineNumber',column_edi_rec]].drop_duplicates(['PO','ProductService ID','LineNumber'])
-#     # df_edi=read_excel(path_ship_elp_master,sheet_name='EDI Master')
-#     if not column_edi_rec in df_edi.columns:
-#         df_edi[column_edi_rec]=''
-#     df_edi = df_edi.merge(df_oor_old, how='left', on=['PO', 'ProductService ID', 'LineNumber'], suffixes=('_df1', '_df2'),sort=False)
-#     df_edi[column_edi_rec] = df_edi[f'{column_edi_rec}_df1']
-#     df_edi.loc[df_edi[column_edi_rec].isnull() | (df_edi[column_edi_rec] == ''), column_edi_rec] = df_edi[f'{column_edi_rec}_df2']
-#     df_edi.drop(columns=[f'{column_edi_rec}_df1',f'{column_edi_rec}_df2'],inplace=True)
 
 # Shipment transactions, lo embarcado al cliente
 path_ship_cust_new=get_path(file_selectors,'Shipment transactions')
@@ -2241,7 +2225,7 @@ df_acc_shorts.reset_index(inplace=True,drop=True)
 df_acc_shorts['quantity'].fillna(0,inplace=True)
 df_acc_shorts['Cumulative Sum'] = df_acc_shorts.groupby(['modelo'])['quantity'].cumsum()
 df_arrivals['Cumulative Sum']=df_arrivals['Cumulative Sum'].astype(int)
-df_acc_shorts['Cumulative Sum']=df_arrivals['Cumulative Sum'].astype(int)
+df_acc_shorts['Cumulative Sum']=df_acc_shorts['Cumulative Sum'].astype(int)
 df_acc_shorts = pd.merge_asof(
     df_acc_shorts.sort_values('Cumulative Sum'),
     df_arrivals.sort_values('Cumulative Sum'),
