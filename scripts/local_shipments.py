@@ -16,6 +16,8 @@
 
 # %% [markdown]
 # # Seguimiento a embarques
+# - V31. 2025-04-08
+#     - Correccion en Gating parts report
 # - V30. 2025-04-02
 #     - Conservar fechas del OOR
 # - V29. 2025-04-01
@@ -1239,26 +1241,6 @@ else:
     initialdir='Not selected'
 folder_output_label = widgets.Label(value=initialdir)
 
-def on_output_button_click(b):
-    if state['folder_output']:
-        initialdir=state['folder_output']
-    else:
-        initialdir='/'
-    selected_dir = select_directory(initialdir=initialdir)
-    if selected_dir:
-        folder_output_label.value = f"{selected_dir}"
-        state['folder_output']=selected_dir
-        save_state_pickle(state)
-    else:
-        folder_output_label.value = "Not selected"
-    set_paths(folder_output_label.value)
-
-
-
-
-# Attach the event to the folder_output_button
-folder_output_button.on_click(on_output_button_click)
-
 # Create an array of button and label widgets
 file_selectors = []
 for filter_name in filters:
@@ -1631,7 +1613,7 @@ save_df(df_korrus_data_new,filepath=output_paths['path_korrus_data'],sheet_name=
 # - Hay tres reportes EDI Master, Shipped to Cust, Shipped to ELP
 # - Si hay archivos seleccionados se integran a estos reportes
 
-# %% [markdown]
+
 # ### Consolidar
 # - Korrus_data --> EDI Master
 # - InventoryStage --> Shipment to ELP
@@ -1696,22 +1678,6 @@ if (len(df_korrus_data_new)>0) & (checkbox.value):
     edi_keys=['PO','LineNumber','ProductService ID','AssignedDropZone']
     df_edi=append_df_to_df(df_new=df_korrus_data_new,df_old=df_edi,table='EDI Master',keys=edi_keys)
 
-
-# # Obtener fechas de llegada del OOR viejo
-# path_oor_old=get_path(file_selectors,'OOR')
-# if checkbox_oor_dates.value:
-#     df_oor_old=load_excel_with_header_key(path_oor_old,sheet_name='OOR',key_text='EDI Received')
-#     check_mandatory_cols(df_oor_old.columns,'OOR')
-#     df_oor_old=rename_columns(df_oor_old,df_col_rel,table_from='OOR Report',sheet_from='OOR',table_to='ELP Master',sheet_to='EDI Master')
-#     column_edi_rec='EDI Received'
-#     df_oor_old=df_oor_old[['PO','ProductService ID','LineNumber',column_edi_rec]].drop_duplicates(['PO','ProductService ID','LineNumber'])
-#     # df_edi=read_excel(path_ship_elp_master,sheet_name='EDI Master')
-#     if not column_edi_rec in df_edi.columns:
-#         df_edi[column_edi_rec]=''
-#     df_edi = df_edi.merge(df_oor_old, how='left', on=['PO', 'ProductService ID', 'LineNumber'], suffixes=('_df1', '_df2'),sort=False)
-#     df_edi[column_edi_rec] = df_edi[f'{column_edi_rec}_df1']
-#     df_edi.loc[df_edi[column_edi_rec].isnull() | (df_edi[column_edi_rec] == ''), column_edi_rec] = df_edi[f'{column_edi_rec}_df2']
-#     df_edi.drop(columns=[f'{column_edi_rec}_df1',f'{column_edi_rec}_df2'],inplace=True)
 
 # Shipment transactions, lo embarcado al cliente
 path_ship_cust_new=get_path(file_selectors,'Shipment transactions')
@@ -2208,8 +2174,10 @@ dict_gating=read_excel(path_gating,sheet_name=None)
 path_oor=get_path(file_selectors,'OOR')
 close_xl_if_open(path_oor)
 wb_oor=load_workbook(path_oor)
-
 ws_oor=wb_oor['OOR']
+if ws_oor['A1'].value is None:
+    show_popup_message(f"Favor de Guardar el archivo {path_oor}")
+    raise SystemExit()
 dict_oor=get_worksheet_df(ws_oor,'Family',data_only=True)
 df_oor=rename_columns(dict_oor['df'],df_col_rel,table_from='OOR Report',sheet_from='OOR')
 
@@ -2250,13 +2218,14 @@ df_arrivals=dict_gating['Arrivals']
 df_arrivals=rename_columns(df_arrivals,df_col_rel,table_from='Gating Parts',sheet_from='Arrivals')
 df_arrivals.sort_values(['modelo','arrival_due'], inplace=True)
 df_arrivals['Cumulative Sum'] = df_arrivals.groupby(['modelo'])['arrival_qty'].cumsum()
-
 df_acc_shorts=df_oor[(df_oor['accessory_gating_part']=='Acc Short')&
                      (df_oor['oor_status'].str.lower()!='cancelled')&
                      (df_oor['family'].str[0:5].str.lower()=='acces')]
+df_acc_shorts.reset_index(inplace=True,drop=True)
+df_acc_shorts['quantity'].fillna(0,inplace=True)
 df_acc_shorts['Cumulative Sum'] = df_acc_shorts.groupby(['modelo'])['quantity'].cumsum()
 df_arrivals['Cumulative Sum']=df_arrivals['Cumulative Sum'].astype(int)
-df_acc_shorts['Cumulative Sum']=df_arrivals['Cumulative Sum'].astype(int)
+df_acc_shorts['Cumulative Sum']=df_acc_shorts['Cumulative Sum'].astype(int)
 df_acc_shorts = pd.merge_asof(
     df_acc_shorts.sort_values('Cumulative Sum'),
     df_arrivals.sort_values('Cumulative Sum'),
@@ -2265,6 +2234,7 @@ df_acc_shorts = pd.merge_asof(
     by='modelo',
     direction='forward'
 )
+
 df_acc_shorts.dropna(subset=['po','modelo','LineNumber','arrival_due','quantity','arrival_qty'],inplace=True)
 df_acc_shorts=df_acc_shorts[['po','modelo','LineNumber','arrival_due','quantity','arrival_qty']]
 df_acc_shorts.drop_duplicates(subset=['po','modelo','LineNumber'],inplace=True,keep='last')
@@ -2288,8 +2258,6 @@ for index,row in df_oor[['fixture_gating_part','fixture_gating_part_cell','fixt_
     cell.value=row['arrival_due']
 # Value A1=1 is just to check later if formulas are evaluated
 ws_oor['A1'].value="=1"
-
-
 
 # %% [markdown]
 # # Actualizar Status
