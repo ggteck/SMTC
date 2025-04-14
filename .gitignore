@@ -9,5 +9,6 @@ scripts/requirements.txt
 *.qmd
 *.png
 *.svg
+*.pyc
 scripts/.ipynb_checkpoints/scripts_catalog-checkpoint.ipynb
 PowerBi
