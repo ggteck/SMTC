@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V32. 2025-04-14
+    - Mejoras de eficiencia
 - V31. 2025-04-12
     - Cambiar a streamlit
 - V30. 2025-04-02
@@ -408,8 +410,8 @@ def append_df_to_df(df_new=pd.DataFrame(),df_old=pd.DataFrame(),table='',keys=[]
     df_grp=df_grp[df_grp[df_grp.columns[0]]>1]
     if len(df_grp)>0:
         df_grp.reset_index(inplace=True)
-        st.info(f"Hay duplicados en el archivo {table} para la llave {keys}:",df_grp[keys].sort_values(keys))
-        raise SystemExit()
+        st.error(f"Hay duplicados en el archivo {table} para la llave {keys}:",df_grp[keys].sort_values(keys))
+        st.stop()
     return df_old
 
 def update_dataframe(df_original,df_to_integrate,key_cols=[],exceptions=[]):
@@ -445,8 +447,8 @@ def set_family(df,column,dest_col='Family'):
 def check_duplicated_columns(df):
     duplicated = df.columns[df.columns.duplicated()].tolist()
     if duplicated:
-        st.info(f"Columnas duplicadas: {duplicated}")
-        raise SystemExit()
+        st.error(f"Columnas duplicadas: {duplicated}")
+        st.stop()
 
 def append_to_sheet(ws_dict, ws):
     """
@@ -481,9 +483,9 @@ def save_df(df, filepath, sheet_name='Sheet', index=False):
 def check_mandatory_cols(cols,selector_name, raise_error=True):
     missing_columns = [col for col in mandatory_cols[selector_name] if col not in cols]
     if len(missing_columns)>0:
-        st.info(f"No se encontraron las siguientes columnas en el archivo {selector_name}: {missing_columns}")
+        st.error(f"No se encontraron las siguientes columnas en el archivo {selector_name}: {missing_columns}")
         if raise_error:
-            raise SystemExit()
+            st.stop()
         return False
     return True
 
@@ -548,8 +550,8 @@ def close_xl_if_open(path):
             workbook.Save()
             workbook.Close()
         except:
-            st.info(f"Cerrar el archivo: {path}")
-            raise SystemExit()    
+            st.error(f"Cerrar el archivo: {path}")
+            st.stop()   
 
 def get_locations(df,ws,column):
     """
@@ -579,8 +581,8 @@ def get_worksheet_df(ws, key_text=None,data_only=False):
                 break
 
         if header_row_idx is None:
-            st.info(f"No se encontró el header: {key_text}")
-            raise SystemExit()     
+            st.error(f"No se encontró el header: {key_text}")
+            st.stop()     
     else:
         header_row_idx=1
     header = [cell for cell in ws[header_row_idx]]
@@ -749,8 +751,8 @@ def get_column_info(ws, col_name, raise_error=True):
     if not col_cell:
         if not raise_error:
             return False
-        st.info(f"Column '{col_name}' not found in the sheet.")
-        raise SystemExit()
+        st.error(f"Column '{col_name}' not found in the sheet.")
+        st.stop()
     col_cell=ws[col_cell]
     last_cell=ws[ws.calculate_dimension()][-1][-1].coordinate
     data_range=ws[col_cell.offset(1,0).coordinate:ws.cell(ws[last_cell].row,col_cell.offset(1,0).column).coordinate]
@@ -1118,16 +1120,14 @@ def verify_selections(file_selectors):
         if selected == 'Not selected':
             not_selected.append(selector)
     if len(not_selected) > 0:
-        st.info(f"Favor de seleccionar los siguientes archivos: {not_selected}")
-        raise SystemExit()
+        st.error(f"Favor de seleccionar los siguientes archivos: {not_selected}")
+        st.stop()
 
 
 # ----------------------------------------------------------------
 # Dummy functions for the 5 process buttons
 # ----------------------------------------------------------------
-def generar_reportes():
-    st.write("Ejecutando función: Generar Reportes")
-    
+def generar_reportes():    
     # ## Generar reportes
     # - Hay tres reportes EDI Master, Shipped to Cust, Shipped to ELP
     # - Si hay archivos seleccionados se integran a estos reportes
@@ -1139,6 +1139,8 @@ def generar_reportes():
     # - Shipment transactions: Standalone file
     #
     # Consolidar reportes 
+    msg_reportes=st.empty()
+    msg_reportes=st.info("Generando reportes")
     path_ship_elp=get_path(state,'ELP Master')
     close_xl_if_open(path_ship_elp)
     path_oor_old=get_path(state,'OOR')
@@ -1155,8 +1157,8 @@ def generar_reportes():
 
 
     if not os.path.exists(output_paths['path_xl_format']):
-        st.info("No se encuentra el archivo: columns and formatting.xlsx")
-        raise SystemExit()
+        st.error("No se encuentra el archivo: columns and formatting.xlsx")
+        st.stop()
     # Demanda del cliente
     if not os.path.exists(output_paths['path_korrus_data']):
         df=pd.DataFrame(columns=[mandatory_cols['Korrus']+['origin_file']])
@@ -1164,7 +1166,7 @@ def generar_reportes():
 
     df_korrus_data_new=pd.read_excel(output_paths['path_korrus_data'])
     if (len(df_korrus_data_new)>0):
-        st.info("Integrando Korrus data")
+        msg_reportes.info("Integrando Korrus data")
         df_korrus_data_new=df_korrus_data_new.loc[:, ~df_korrus_data_new.columns.str.startswith('Unnamed:')]
         df_korrus_data_new=df_korrus_data_new[~df_korrus_data_new['PurchaseOrder'].str.contains('---')]
         df_korrus_data_new['PODate']=pd.to_datetime(df_korrus_data_new['PODate'],format='mixed', errors='coerce')
@@ -1194,6 +1196,7 @@ def generar_reportes():
     # Shipment transactions, lo embarcado al cliente
     path_ship_cust_new=get_path(state,'Shipment transactions')
     if path_ship_cust_new!='Not selected':
+        msg_reportes.info("Integrando Shipments transactions")
         df_ship_cust_new=pd.read_excel(path_ship_cust_new)
         check_mandatory_cols(df_ship_cust_new.columns,'Shipment transactions')
         df_ship_cust_new=df_ship_cust_new[~df_ship_cust_new['Customer PO#'].isna()]
@@ -1202,7 +1205,7 @@ def generar_reportes():
     # InventoryStage, lo que se embarco a ELP 
     path_ship_elp_new=get_path(state,'InventoryStageBakup')
     if path_ship_elp_new!='Not selected':
-        st.info("Integrando InventoryStageBackup")
+        msg_reportes.info("Integrando InventoryStageBackup")
         df_ship_elp_new=read_excel(path_ship_elp_new)
         check_mandatory_cols(df_ship_elp_new.columns,'InventoryStageBakup')
         df_ship_elp_new=df_ship_elp_new[df_ship_elp_new['Cliente']!='Total']
@@ -1233,8 +1236,7 @@ def generar_reportes():
         df_ship_elp=set_family(df_ship_elp,column='PN',dest_col='Family')
 
     # Ordenes Canceladas   
-    st.info("Integrando Ordenes canceladas")
-
+    msg_reportes.info("Integrando Ordenes canceladas")
     df_cancelled=read_excel(path_ship_elp,sheet_name='Cancelled Orders')
     df_cancelled=rename_columns(df_cancelled,df_col_rel,table_from='ELP Master',sheet_from='Cancelled Orders',table_to='ELP Master',sheet_to='EDI Master')
     df_cancelled=df_cancelled[['PO','ProductService ID','LineNumber']].drop_duplicates()
@@ -1254,18 +1256,20 @@ def generar_reportes():
     wb_elp=format_xl_dates(wb_elp,sheet_name='EDI Master',date_columns=date_cols)
     date_cols=df_columns[(df_columns['sheet']=='Shipment to ELP')&(df_columns['data_type']=='date')]['column_name'].to_list()
     wb_elp=format_xl_dates(wb_elp,sheet_name='Shipment to ELP',date_columns=date_cols)
+    msg_reportes.info("Guardando Elp Master")
 
     save_wb(wb_elp,path_ship_elp)
 
 
     # Reporte de work orders, que se encuentra en proceso de produccion
+    msg_reportes.info("Integrando tracker")
     path_tracker=get_path(state,'Tracker')
-    df_wo_wb=pd.read_excel(path_tracker,sheet_name=None)
+    xls = pd.ExcelFile(path_tracker)
+    wo_sheets=[sheet for sheet in xls.sheet_names if (('Plan de produccion' in sheet) or ('TERMINADAS' in sheet))]
     df_wo=pd.DataFrame()
-    for sheet in df_wo_wb.keys():
-        if ('Plan de produccion' in sheet) or ('TERMINADAS' in sheet) :
-            df_wo=pd.concat([df_wo,df_wo_wb[sheet]])
-            df_wo.dropna(subset=['PO cliente','Modelo'],inplace=True)
+    for sheet in wo_sheets:
+        df_wo=pd.concat([df_wo,pd.read_excel(path_tracker,sheet_name=sheet)])
+        df_wo.dropna(subset=['PO cliente','Modelo'],inplace=True)
     check_mandatory_cols(df_wo.columns,'Tracker')
     df_wo=rename_columns(df_wo,df_col_rel,table_from='Tracker',sheet_from='Plan de produccion')
     df_wo['modelo']=df_wo['modelo'].str.upper()
@@ -1277,9 +1281,10 @@ def generar_reportes():
 
 
     # Procesar envios al cliente eliminando cantidades negativas. Se conserva la fecha mas nueva de envio.
+
     if not os.path.exists(output_paths['path_ship_cust']):
-        st.info('No hay envios al paso, integre al menos un Shipment Transactions')
-        raise SystemExit()
+        st.error('No hay envios al paso, integre al menos un Shipment Transactions')
+        st.stop()
     df_ship_cust=read_excel(path=output_paths['path_ship_cust'])
     df_ship_cust=rename_columns(df_ship_cust,df_col_rel,table_from='Shipment transactions')
     df_ship_cust['modelo']=df_ship_cust['modelo'].str.upper()
@@ -1302,6 +1307,19 @@ def generar_reportes():
 
 
     # Merge EDI con work orders y embarques
+
+    df_edi=df_edi[df_edi['po_date']>pd.to_datetime(state["fecha_freeze"])]
+    df_edi_po_dates=df_edi[['po','modelo','po_date']].copy()
+    df_edi_po_dates.sort_values(['po_date'],inplace=True)
+    df_edi_po_dates.drop_duplicates(['po','modelo'],keep='last',inplace=True)
+    df_wo=df_wo.merge(df_edi_po_dates,how='left',on=['po','modelo'])
+    df_wo=df_wo[df_wo['po_date']>pd.to_datetime(state["fecha_freeze"])]
+    df_ship_cust_dates=df_ship_cust_dates.merge(df_edi_po_dates,how='left',on=['po','modelo'])
+    df_ship_cust_dates=df_ship_cust_dates[df_ship_cust_dates['po_date']>pd.to_datetime(state["fecha_freeze"])]
+    df_ship_elp=df_ship_elp.merge(df_edi_po_dates,how='left',on=['po','modelo'])
+    df_ship_elp=df_ship_elp[df_ship_elp['po_date']>pd.to_datetime(state["fecha_freeze"])]
+
+    msg_reportes.info("Asignando ordenes")
     assignments_wo=assign_quantities(df_pos=df_edi,df_to_assign=df_wo,additional_fields=['WO','START DATE','FINISH DATE','reprogrammed_cuu','estimated_move_date_cuu'])
     df_edi_combined=assignments_wo['df_pos']
     df_edi_combined.rename({'Assigned':'WO Qty'},axis=1,inplace=True)
@@ -1312,20 +1330,9 @@ def generar_reportes():
     df_edi_combined=assignments_shp_elp['df_pos']
     df_edi_combined.rename({'Assigned':'Shipped to Elp'},axis=1,inplace=True)
 
-
-
     # ### OOR Report
 
-
     # Add additional fields to EDI, only the record with last ship date, the detail is in Work orders sheet, Shipped to ELP and Shipped to cust reports
-
-    def merge_additional_fields(df=pd.DataFrame(),df_edi=pd.DataFrame(),fields=[],sort_fields=[],key=[]):
-        if len(df)==0:
-            df=pd.DataFrame(columns=fields)
-        df=df.sort_values(sort_fields)
-        df.drop_duplicates(key,keep='last',inplace=True)
-        df_edi=df_edi.merge(df[fields],how='left',on=key)
-        return df_edi
 
     df_assigned_wo = assignments_wo['df_assignments']
     df_edi_combined=merge_additional_fields(df_assigned_wo,
@@ -1438,6 +1445,15 @@ def generar_reportes():
 
     df_edi_combined['WO'].fillna('',inplace=True)
 
+    # Get prices if selected
+    path_prices=get_path(state,'Prices')
+    df_prices=None
+    if path_prices!='Not selected':
+        msg_reportes.info("Integrando precios")
+        df_prices=read_excel(path_prices)
+        df_prices=rename_columns(df_prices,df_col_rel,table_from='Prices',table_to='OOR Report',sheet_to='OOR')
+        df_prices=df_prices[['ProductServiceID','Price']]
+        df_prices.drop_duplicates(['ProductServiceID'],keep='last',inplace=True)
 
     # ### Actualizar OOR con datos nuevos
 
@@ -1469,7 +1485,7 @@ def generar_reportes():
     path_oor_old=get_path(state,'OOR')
 
     close_xl_if_open(path_oor_old)
-    sheet_rel=extract_selected_sheets(path_oor_old,sheets_to_keep,keep_original=False)
+    # sheet_rel=extract_selected_sheets(path_oor_old,sheets_to_keep,keep_original=False)
     wb_oor_old=load_workbook(path_oor_old)
 
     ws_oor_old=wb_oor_old['OOR']
@@ -1509,6 +1525,11 @@ def generar_reportes():
     df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received_new']
     df_oor_old.drop(columns='EDI Received_new',inplace=True)
     dict_oor_old['df']=df_oor_old
+    
+    if len(df_prices)>0:
+        # if 'Price' in df_oor_old.columns:
+        #     df_oor_old.drop(columns=['Price'],inplace=True)
+        df_oor_old=df_oor_old.merge(df_prices,how='left',on=['ProductServiceID'])
 
     ws_oor_old=update_sheet(dict_oor_old,ws_oor_old)
     # Value A1=1 is just to check later if formulas are evaluated
@@ -1584,8 +1605,8 @@ def fill_aar():
     folder_yield=state.get('folder_yield', "Not selected")
 
     if folder_yield=="Not selected":
-        st.info(f'Favor de seleccionar los folder con Yield reports')
-        raise SystemExit()
+        st.error(f'Favor de seleccionar los folder con Yield reports')
+        st.stop()
     yield_files_lst=os.listdir(folder_yield)
     df_yield=pd.DataFrame()
     for file in yield_files_lst:
@@ -1639,8 +1660,8 @@ def gating_parts():
     neutral_format=dict_special_formats['neutral_format']
     path_gating=get_path(state,'Gating Parts')
     if path_gating=="Not selected":
-        st.info("Seleccionar reporte de Gating Parts")
-        raise SystemExit()
+        st.error("Seleccionar reporte de Gating Parts")
+        st.stop()
     dict_gating=read_excel(path_gating,sheet_name=None)
     path_oor=get_path(state,'OOR')
     close_xl_if_open(path_oor)
@@ -1745,8 +1766,8 @@ def actualizar_status():
     wb_oor=load_workbook(path_oor,data_only=True)
     ws_oor=wb_oor['OOR']
     if ws_oor['A1'].value is None:
-        st.info(f"Favor de Guardar el archivo {path_oor}")
-        raise SystemExit()
+        st.error(f"Favor de Guardar el archivo {path_oor}")
+        st.stop()
 
     dict_oor=get_worksheet_df(ws_oor,'Family ',data_only=True)
     df_oor=dict_oor['df']
@@ -2031,6 +2052,14 @@ def assign_quantities(df_pos, df_to_assign, additional_fields=[]):
     df_assignments = pd.DataFrame(df_assignments)
     assigned={'df_pos':df_pos,'df_assignments':df_assignments}
     return assigned
+
+def merge_additional_fields(df=pd.DataFrame(),df_edi=pd.DataFrame(),fields=[],sort_fields=[],key=[]):
+    if len(df)==0:
+        df=pd.DataFrame(columns=fields)
+    df=df.sort_values(sort_fields)
+    df.drop_duplicates(key,keep='last',inplace=True)
+    df_edi=df_edi.merge(df[fields],how='left',on=key)
+    return df_edi
 
 def map_yield_report(df):
     df_yield=df.copy()
@@ -2475,7 +2504,7 @@ if fecha_freeze_input != state.get("fecha_freeze"):
 
 # Selección de archivos mediante manage_file_selector
 st.header("Seleccionar archivos")
-for file_key in ['OOR', 'Tracker', 'ELP Master', 'Shipment transactions', 'InventoryStageBakup', 'OH Max', 'Gating Parts']:
+for file_key in ['OOR', 'Tracker', 'ELP Master', 'Shipment transactions', 'InventoryStageBakup', 'OH Max', 'Prices', 'Gating Parts']:
     manage_file_selector(file_key, file_key, state)
 
 # Selección de carpeta de yield reports
