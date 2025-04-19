@@ -2,29 +2,24 @@
 import pandas as pd
 import os
 from copy import copy
-from manufacturing_plan import (open_file_selection,
-select_directory,
-set_paths,
-set_col_rel,
-show_popup_message,
-read_excel,
-load_excel_with_header_key,
-save_state_pickle,
-load_state_pickle,
-rename_columns,
-create_plan,
-manage_file_selector)
-
-#%%
+from importlib import reload
+from manufacturing_plan import *
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill, Alignment
+from openpyxl.utils import get_column_letter
 state = load_state_pickle()
+
 folder_output = state['folder_output']
 file_selectors = state['selections']
 output_paths = set_paths(folder_output)
 col_rel = set_col_rel(output_paths)
 df_col_rel = col_rel['col_rel']
+df_columns=col_rel['columns']
+
+#%%
 
 if not os.path.exists(output_paths['path_xl_format']):
-    show_popup_message("No se encuentra el archivo: columns and formatting.xlsx")
+    print("No se encuentra el archivo: columns and formatting.xlsx")
     raise SystemExit()
 
 path_master_doblado = file_selectors['master_file']
@@ -34,11 +29,22 @@ df_master_doblado = rename_columns(df_master_doblado, df_col_rel, table_from='Ma
 path_routing = file_selectors['routing_file']
 df_routing = load_excel_with_header_key(path_routing, sheet_name='Operations', key_text='Routing')
 df_routing = rename_columns(df_routing, df_col_rel, table_from='Routing', sheet_from='Operations')
-
+#%% Open order list
 path_order_list = file_selectors['order_file']
 df_order_list = load_excel_with_header_key(path_order_list, key_text='Priority')
 df_order_list = rename_columns(df_order_list, df_col_rel, table_from='Lista de ordenes')
 
+#%% Open old plan
+path_plan=output_paths['path_plan']
+df_plan_old=read_predefined_excel(path_plan,df_columns=df_columns,table='Manufacturing plan',check_mandatory=True)
+df_plan_old=df_plan_old[~df_plan_old['status'].isna()]
+
+#%% Show orders already planned
+df_already_planned=get_common_records(df_new=df_order_list,df_old=df_plan_old,keys=['wo','pn'])
+st.info("Las siguientes ordenes ya estan planeadas, continue si desea agregarlas al nuevo plan")
+st.info(df_already_planned)
+
+#%%
 machine_status = {}
 assignments = []
 df_order_list.sort_values('priority', inplace=True)
@@ -65,7 +71,7 @@ for idx, order in df_order_list.iterrows():
         if m not in machine_status:
             machine_status[m] = {'day': 1, 'avail': copy(shifts), 'last_pn': None}
     if len(machines) == 0:
-        show_popup_message(f"Favor de asignar maquina al PN: {pn}")
+        print(f"Favor de asignar maquina al PN: {pn}")
         raise SystemExit()
     while qty > 0:
         assigned = False
@@ -118,12 +124,66 @@ for idx, order in df_order_list.iterrows():
                 machine_status[m]['avail'] = copy(shifts)
                 machine_status[m]['last_pn'] = None
 
-report = pd.DataFrame(assignments)
-max_day = report['day'].max()
+df_plan_new=get_predefined_df(df_columns=df_columns,table='Manufacturing plan')
+df_plan_new = pd.concat([df_plan_new,pd.DataFrame(assignments)],ignore_index=True)
+max_day = df_plan_new['day'].max()
 workdays = pd.bdate_range(start=pd.to_datetime(state['initial_date']), periods=max_day)
 day_to_date = {day: workdays[day - 1] for day in range(1, max_day + 1)}
-report['date'] = report['day'].map(day_to_date)
-report.sort_values(['date', 'machine', 'shift', 'priority', 'wo'], inplace=True)
-report.to_excel(output_paths['path_plan'], index=False)
+df_plan_new['date'] = df_plan_new['day'].map(day_to_date)
+df_plan_new.sort_values(['date', 'machine', 'shift', 'priority', 'wo'], inplace=True)
+#%%
 
 #%%
+df_plan_old=append_df_to_df(df_new=df_plan_new,df_old=df_plan_old,table='Manufacturing plan',keys=['wo','pn'],allow_duplicates=True)
+#%%
+df_plan_old.to_excel(path_plan,index=False)
+#%%
+df=df_plan_old
+#%%
+
+group_cols=['date']
+#%% Reportes
+wb = Workbook()
+ws = wb.active
+ws.title = 'Report'
+
+# Write headers
+titles = list(df.columns)
+for idx, title in enumerate(titles, start=1):
+    ws.cell(row=1, column=idx, value=title)
+
+current_row = 2
+black_fill = PatternFill(start_color='000000', end_color='000000', fill_type='solid')
+
+# Identify numeric columns for subtotals
+numeric_cols = ['pzas_x_hacer','time_used']
+
+groups = df.groupby(group_cols)
+for date, group in groups:
+    start_row = current_row
+    # Data rows
+    for _, row in group.iterrows():
+        for col_idx, col in enumerate(titles, start=1):
+            if col not in group_cols:
+                ws.cell(row=current_row, column=col_idx, value=row[col])
+        current_row += 1
+    end_data_row = current_row - 1
+
+    # Subtotal row
+    for col_idx, col in enumerate(titles, start=1):
+        if col in numeric_cols:
+            col_letter = get_column_letter(col_idx)
+            formula = f"=SUM({col_letter}{start_row}:{col_letter}{end_data_row})"
+            ws.cell(row=current_row, column=col_idx, value=formula)
+    current_row += 1
+
+    # Blank line with black fill across data range
+    for col_idx in range(1, len(titles) + 1):
+        ws.cell(row=current_row, column=col_idx).fill = black_fill
+    current_row += 1
+
+    # Merge date cells and rotate text
+    ws.merge_cells(start_row=start_row, start_column=1, end_row=end_data_row, end_column=1)
+    date_cell = ws.cell(row=start_row, column=1, value=date[0])
+    date_cell.alignment = Alignment(textRotation=90, horizontal='center', vertical='center')
+wb.save('report.xlsx')
