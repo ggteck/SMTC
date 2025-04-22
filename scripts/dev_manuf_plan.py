@@ -141,49 +141,57 @@ df_plan_old.to_excel(path_plan,index=False)
 df=df_plan_old
 #%%
 
-group_cols=['date']
+
 #%% Reportes
-wb = Workbook()
-ws = wb.active
-ws.title = 'Report'
+machines=df_plan_old['machine'].drop_duplicates().tolist()
+group_cols=['date']
+for machine in machines:
+    df=df_plan_old[df_plan_old['machine']==machine].copy()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Report'
 
-# Write headers
-titles = list(df.columns)
-for idx, title in enumerate(titles, start=1):
-    ws.cell(row=1, column=idx, value=title)
+    # Write headers
+    titles = list(df.columns)
+    for idx, title in enumerate(titles, start=1):
+        ws.cell(row=1, column=idx, value=title)
 
-current_row = 2
-black_fill = PatternFill(start_color='000000', end_color='000000', fill_type='solid')
+    current_row = 2
+    black_fill = PatternFill(start_color='000000', end_color='000000', fill_type='solid')
 
-# Identify numeric columns for subtotals
-numeric_cols = ['pzas_x_hacer','time_used']
+    # Identify numeric columns for subtotals
+    numeric_cols = ['pzas_x_hacer','time_used']
 
-groups = df.groupby(group_cols)
-for date, group in groups:
-    start_row = current_row
-    # Data rows
-    for _, row in group.iterrows():
+    groups = df.groupby(group_cols)
+    for date, group in groups:
+        start_row = current_row
+        # Data rows
+        for _, row in group.iterrows():
+            for col_idx, col in enumerate(titles, start=1):
+                if col not in group_cols:
+                    ws.cell(row=current_row, column=col_idx, value=row[col])
+            current_row += 1
+        end_data_row = current_row - 1
+
+        # Subtotal row
         for col_idx, col in enumerate(titles, start=1):
-            if col not in group_cols:
-                ws.cell(row=current_row, column=col_idx, value=row[col])
+            if col in numeric_cols:
+                col_letter = get_column_letter(col_idx)
+                formula = f"=SUM({col_letter}{start_row}:{col_letter}{end_data_row})"
+                ws.cell(row=current_row, column=col_idx, value=formula)
         current_row += 1
-    end_data_row = current_row - 1
+    
+        # Blank line with black fill across data range
+        for col_idx in range(1, len(titles) + 1):
+            ws.cell(row=current_row, column=col_idx).fill = black_fill
+        current_row += 1
 
-    # Subtotal row
-    for col_idx, col in enumerate(titles, start=1):
-        if col in numeric_cols:
-            col_letter = get_column_letter(col_idx)
-            formula = f"=SUM({col_letter}{start_row}:{col_letter}{end_data_row})"
-            ws.cell(row=current_row, column=col_idx, value=formula)
-    current_row += 1
+        # Merge date cells and rotate text
+        ws.merge_cells(start_row=start_row, start_column=1, end_row=end_data_row+1, end_column=1)
+        date_cell = ws.cell(row=start_row, column=1, value=date[0])
+        date_cell.alignment = Alignment(textRotation=90, horizontal='center', vertical='center')
+        date_cell.number_format = 'mmmm, d, yyyy'
+    base, ext = os.path.splitext(output_paths['path_report'])
+    wb.save(f"{base} {machine}{ext}")
+# %%
 
-    # Blank line with black fill across data range
-    for col_idx in range(1, len(titles) + 1):
-        ws.cell(row=current_row, column=col_idx).fill = black_fill
-    current_row += 1
-
-    # Merge date cells and rotate text
-    ws.merge_cells(start_row=start_row, start_column=1, end_row=end_data_row, end_column=1)
-    date_cell = ws.cell(row=start_row, column=1, value=date[0])
-    date_cell.alignment = Alignment(textRotation=90, horizontal='center', vertical='center')
-wb.save('report.xlsx')
