@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V33. 2025-04-21
+    - Cambio shipment transactions por elp master
 - V32. 2025-04-14
     - Mejoras de eficiencia
 - V31. 2025-04-12
@@ -1091,20 +1093,24 @@ def set_hyperlink(df,sheet_name,col_name,idx_name,typ='str'):
 # Manage File Selector (Streamlit)
 # ----------------------------------------------------------------
 def manage_file_selector(selector_key, display_label, state):
-    if not state["selections"].get(selector_key):
-        if st.button(f"{display_label} File", key=f"select_{selector_key}"):
-            files = open_file_selection(initialdir=state["folder_output"] or os.getcwd())
+    button_ph = st.empty()
+    msg_ph = st.empty()
+
+    selected_path = state['selections'].get(selector_key, '')
+    if (not selected_path)|(selected_path=='Not selected'):
+        if button_ph.button(f"{display_label} File", key=f"select_{selector_key}"):
+            files = open_file_selection(initialdir=state.get('folder_output') or os.getcwd())
             if files:
-                state["selections"][selector_key] = files[0]
+                state['selections'][selector_key] = files[0]
                 save_state_pickle(state)
                 st.rerun()
-        st.info(f"{display_label} no seleccionado.")
+        msg_ph.info(f"{display_label} no seleccionado.")
     else:
-        st.success(f"Selected {display_label} File: {state['selections'][selector_key]}")
-        if st.button(f"Change {display_label} File", key=f"change_{selector_key}"):
-            state["selections"][selector_key] = ""
+        if button_ph.button(f"Change {display_label} File", key=f"change_{selector_key}"):
+            state['selections'][selector_key] = 'Not selected'
             save_state_pickle(state)
             st.rerun()
+        msg_ph.success(f"Selected {display_label} File: {selected_path}")
 
 def verify_selections(file_selectors):
     not_selected = []
@@ -1146,6 +1152,7 @@ def generar_reportes():
     path_oor_old=get_path(state,'OOR')
     close_xl_if_open(path_oor_old)
     wb_elp=load_workbook(path_ship_elp)
+    wb_elp._external_links.clear()
     ws_edi=wb_elp['EDI Master']
     ws_dict_edi=get_worksheet_df(ws_edi,key_text='PO',data_only=True)
     df_edi=ws_dict_edi['df']
@@ -1196,12 +1203,12 @@ def generar_reportes():
     # Shipment transactions, lo embarcado al cliente
     path_ship_cust_new=get_path(state,'Shipment transactions')
     if path_ship_cust_new!='Not selected':
-        msg_reportes.info("Integrando Shipments transactions")
-        df_ship_cust_new=pd.read_excel(path_ship_cust_new)
-        check_mandatory_cols(df_ship_cust_new.columns,'Shipment transactions')
-        df_ship_cust_new=df_ship_cust_new[~df_ship_cust_new['Customer PO#'].isna()]
+        df_ship_cust_new=load_excel_with_header_key(path_ship_cust_new,sheet_name='Embarques from ELP',key_text='Fecha de Embarque')
+        df_ship_cust_new=rename_columns(df_ship_cust_new,df_col_rel=df_col_rel,table_from='ELP Master',sheet_from='Embarques from ELP')
+        df_ship_cust_new=df_ship_cust_new[df_ship_cust_new['is_shipped'].str.upper().str.contains('YES')]
+        df_ship_cust_new=df_ship_cust_new[~df_ship_cust_new['po'].isna()]
         save_df(df_ship_cust_new,output_paths['path_ship_cust'],sheet_name='Shipped to Cust',index=False)
-
+        
     # InventoryStage, lo que se embarco a ELP 
     path_ship_elp_new=get_path(state,'InventoryStageBakup')
     if path_ship_elp_new!='Not selected':
@@ -1302,8 +1309,8 @@ def generar_reportes():
     df_ship_elp['po']=df_ship_elp['po'].str.strip()
     df_ship_elp['modelo']=df_ship_elp['modelo'].str.strip()
     df_ship_elp['quantity'].fillna(0,inplace=True)
-    df_ship_elp_grp=df_ship_elp.groupby(['po','modelo','shipment_date_elp']).sum('quantity').reset_index()
-    df_ship_elp_grp=df_ship_elp_grp[['po','modelo','quantity','shipment_date_elp']]
+    # df_ship_elp_grp=df_ship_elp.groupby(['po','modelo','shipment_date_elp']).sum('quantity').reset_index()
+    # df_ship_elp_grp=df_ship_elp_grp[['po','modelo','quantity','shipment_date_elp']]
 
 
     # Merge EDI con work orders y embarques
@@ -1447,7 +1454,7 @@ def generar_reportes():
 
     # Get prices if selected
     path_prices=get_path(state,'Prices')
-    df_prices=None
+    df_prices=pd.DataFrame()
     if path_prices!='Not selected':
         msg_reportes.info("Integrando precios")
         df_prices=read_excel(path_prices)
@@ -1487,7 +1494,7 @@ def generar_reportes():
     close_xl_if_open(path_oor_old)
     # sheet_rel=extract_selected_sheets(path_oor_old,sheets_to_keep,keep_original=False)
     wb_oor_old=load_workbook(path_oor_old)
-
+    wb_oor_old._external_links.clear()
     ws_oor_old=wb_oor_old['OOR']
     dict_oor_old=get_worksheet_df(ws_oor_old,'Family')
     df_oor_old=dict_oor_old['df']

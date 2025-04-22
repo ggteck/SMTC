@@ -148,12 +148,14 @@ st.success("Proceso de integración completado.")
 # - InventoryStage --> Shipment to ELP
 # - Shipment transactions: Standalone file
 #
+
 # Consolidar reportes 
 path_ship_elp=get_path(state,'ELP Master')
 close_xl_if_open(path_ship_elp)
 path_oor_old=get_path(state,'OOR')
 close_xl_if_open(path_oor_old)
 wb_elp=load_workbook(path_ship_elp)
+wb_elp._external_links.clear()
 ws_edi=wb_elp['EDI Master']
 ws_dict_edi=get_worksheet_df(ws_edi,key_text='PO',data_only=True)
 df_edi=ws_dict_edi['df']
@@ -163,6 +165,7 @@ ws_ship_elp=wb_elp['Shipment to ELP']
 ws_dict_ship_elp=get_worksheet_df(ws_ship_elp,key_text='CUU ship Date',data_only=True)
 df_ship_elp=ws_dict_ship_elp['df']
 
+df=pd.read_excel(path_ship_elp,sheet_name='Shipment to ELP')
 
 if not os.path.exists(output_paths['path_xl_format']):
     st.info("No se encuentra el archivo: columns and formatting.xlsx")
@@ -204,11 +207,12 @@ if (len(df_korrus_data_new)>0):
 # Shipment transactions, lo embarcado al cliente
 path_ship_cust_new=get_path(state,'Shipment transactions')
 if path_ship_cust_new!='Not selected':
-    df_ship_cust_new=pd.read_excel(path_ship_cust_new)
-    check_mandatory_cols(df_ship_cust_new.columns,'Shipment transactions')
-    df_ship_cust_new=df_ship_cust_new[~df_ship_cust_new['Customer PO#'].isna()]
+    df_ship_cust_new=load_excel_with_header_key(path_ship_cust_new,sheet_name='Embarques from ELP',key_text='Fecha de Embarque')
+    df_ship_cust_new=rename_columns(df_ship_cust_new,df_col_rel=df_col_rel,table_from='ELP Master',sheet_from='Embarques from ELP')
+    df_ship_cust_new=df_ship_cust_new[df_ship_cust_new['is_shipped'].str.upper().str.contains('YES')]
+    df_ship_cust_new=df_ship_cust_new[~df_ship_cust_new['po'].isna()]
     save_df(df_ship_cust_new,output_paths['path_ship_cust'],sheet_name='Shipped to Cust',index=False)
-
+#%%
 # InventoryStage, lo que se embarco a ELP 
 path_ship_elp_new=get_path(state,'InventoryStageBakup')
 if path_ship_elp_new!='Not selected':
@@ -244,7 +248,6 @@ if path_ship_elp_new!='Not selected':
 # Ordenes Canceladas   
 
 df_cancelled=read_excel(path_ship_elp,sheet_name='Cancelled Orders')
-#%%
 df_cancelled=rename_columns(df_cancelled,df_col_rel,table_from='ELP Master',sheet_from='Cancelled Orders',table_to='ELP Master',sheet_to='EDI Master')
 df_cancelled=df_cancelled[['PO','ProductService ID','LineNumber']].drop_duplicates()
 df_cancelled['ProductService ID']=df_cancelled['ProductService ID'].str.upper()
@@ -305,7 +308,7 @@ df_wo=move_columns_to_front(df_wo,['po','modelo','wo','quantity','START DATE', '
 #% Edi
 df_edi=rename_columns(df_edi,df_col_rel,table_from='ELP Master',sheet_from='EDI Master')
 
-
+#%%
 # Procesar envios al cliente eliminando cantidades negativas. Se conserva la fecha mas nueva de envio.
 if not os.path.exists(output_paths['path_ship_cust']):
     st.info('No hay envios al paso, integre al menos un Shipment Transactions')
@@ -327,8 +330,8 @@ df_ship_elp['modelo']=df_ship_elp['modelo'].str.upper()
 df_ship_elp['po']=df_ship_elp['po'].str.strip()
 df_ship_elp['modelo']=df_ship_elp['modelo'].str.strip()
 df_ship_elp['quantity'].fillna(0,inplace=True)
-df_ship_elp_grp=df_ship_elp.groupby(['po','modelo','shipment_date_elp']).sum('quantity').reset_index()
-df_ship_elp_grp=df_ship_elp_grp[['po','modelo','quantity','shipment_date_elp']]
+# df_ship_elp_grp=df_ship_elp.groupby(['po','modelo','shipment_date_elp']).sum('quantity').reset_index()
+# df_ship_elp_grp=df_ship_elp_grp[['po','modelo','quantity','shipment_date_elp']]
 
 #%%
 # Merge EDI con work orders y embarques
@@ -470,7 +473,7 @@ df_edi_combined['WO'].fillna('',inplace=True)
 #%%
 # Get prices if selected
 path_prices=get_path(state,'Prices')
-df_prices=None
+df_prices=pd.DataFrame()
 if path_prices!='Not selected':
     df_prices=read_excel(path_prices)
     df_prices=rename_columns(df_prices,df_col_rel,table_from='Prices',table_to='OOR Report',sheet_to='OOR')
@@ -528,6 +531,8 @@ df_oor[['Comment','Status']]=df_oor[['Comment','Status']].fillna('')
 df_oor_to_update=update_dataframe(df_oor_to_update,df_oor.fillna(0),key_cols,exceptions=except_columns)
 df_oor_old=pd.concat([df_oor_old,df_oor_to_update])
 df_oor_old.reset_index(drop=True,inplace=True)
+#%%
+
 path_oh_max=get_path(state,'OH Max')
 
 if path_oh_max!="Not selected":
@@ -540,6 +545,7 @@ if path_oh_max!="Not selected":
         df_oor_old.drop(columns='OH MAX',inplace=True)
     df_oor_old=df_oor_old.merge(df_oh_max,how='left',on='ProductServiceID')
     df_oor_old['OH MAX'].fillna(0,inplace=True)
+#%%
 df_oor_old=df_oor_old.merge(df_edi_rec_dates,how='left',on=key_cols,suffixes=('', '_new'))
 df_oor_old.loc[df_oor_old['EDI Received'].isna(),'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received'].isna(),'EDI Received_new']
 df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received_new']
@@ -551,10 +557,8 @@ if len(df_prices)>0:
         df_oor_old.drop(columns=['Price'],inplace=True)
     df_oor_old.merge(df_prices,how='left',on=['ProductServiceID'])
     df_oor_old=df_oor_old.merge(df_prices,how='left',on=['ProductServiceID'])
-
 #%%
-df_prices
-
+df_oor_old
 #%%
 
 ws_oor_old=update_sheet(dict_oor_old,ws_oor_old)
