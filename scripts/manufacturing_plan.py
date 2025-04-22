@@ -1,5 +1,9 @@
 # Manufacturing plan
-# - V1. 2025-04-07
+# - V3. 2025-04-21
+#     - Reportes en excel
+# - V2. 2025-04-19
+#     - Verificacion de ordenes ya programadas, manejo de status, integracion con plan existente
+# - V1. 2025-04-10
 #     - Version inicial, calculo de plan de produccion
 
 import streamlit as st
@@ -9,7 +13,9 @@ from tkinter import Tk, filedialog as fd
 import datetime
 import pandas as pd
 from copy import copy
-from IPython.display import display, Markdown
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill, Alignment
+from openpyxl.utils import get_column_letter
 
 # =============================================================================
 # File/Directory & System Utilities
@@ -41,21 +47,13 @@ def set_paths(path):
     output_paths = {}
     output_paths['path_xl_format'] = os.path.join(path, 'columns and formatting.xlsx')
     output_paths['path_plan'] = os.path.join(path, 'manufacturing plan.xlsx')
+    output_paths['path_report'] = os.path.join(path, 'reporte de manufactura.xlsx')
     return output_paths
 
 def set_col_rel(output_paths):
     df_columns = read_excel(output_paths['path_xl_format'], sheet_name='column_format')
     df_col_rel = df_columns[~df_columns['std_name'].isnull()].copy()
     return {'col_rel': df_col_rel, 'columns': df_columns}
-
-# =============================================================================
-# User Interface Management
-# =============================================================================
-
-def show_popup_message(message, df=pd.DataFrame()):
-    display(Markdown(f"### **{message}**"))
-    if not df.empty:
-        display(Markdown(df.to_markdown(index=False)))
 
 # =============================================================================
 # Excel Management Functions
@@ -132,33 +130,152 @@ def rename_columns(df, df_col_rel, table_from='std_name', sheet_from='only', tab
         mapping = filtered_to.set_index('std_name')['column_name'].to_dict()
     return df.rename(columns=mapping)
 
+def format_dates(df, date_cols=[],type='iso'):
+    for col in date_cols:
+        if not col in df.columns:
+            continue
+        if type=='iso':
+            df[col]=pd.to_datetime(df[col], errors='coerce').dt.strftime('%Y-%m-%d')
+        else:
+            df[col]=pd.to_datetime(df[col], errors='coerce')
+    return df
+
+def read_predefined_excel(path,df_columns=pd.DataFrame(),table='',sheet='only',check_mandatory=False):
+    """
+    If the file exists, it reads it and returns the dataframe, 
+    otherwise it returns an empty dataframe but with the columns of the file
+    it checks mandatory columns according to columns and formatting file but rises it only if indicated
+    """
+    if not os.path.exists(path):
+        df=get_predefined_df(df_columns=df_columns,
+                             table=table,
+                             sheet=sheet)
+    else:
+        df=read_excel(path)    
+        if check_mandatory:
+            check_mandatory_columns_df(df.columns,df_columns=df_columns,table=table,sheet=sheet)
+    return df
+
+def get_predefined_df(df_columns=pd.DataFrame(),table='',sheet='only'):
+    cols=df_columns[(df_columns['table']==table)&
+                                        (df_columns['sheet']==sheet)]['column_name'].to_list()
+    if len(cols)==0:
+        st.error(f"Tabla: {table} no definida en archivo columns and formatting")
+        st.stop()
+    df=pd.DataFrame(columns=cols)
+    return df
+
+def check_mandatory_columns_df(cols=[],df_columns=pd.DataFrame(),table='',sheet='only'):
+    """
+    Check mandatory columns against the columns marked in
+    columns and formatting file
+    """
+    mandatory_cols=df_columns[(df_columns['table']==table)&
+                                        (df_columns['sheet']==sheet)&
+                                        (~df_columns['mandatory_column'].isna())]['column_name'].to_list()
+    missing_columns = [col for col in mandatory_cols if col not in cols]
+    if len(missing_columns)>0:
+        st.error(f"No se encontraron las siguientes columnas en el archivo {table}: {missing_columns}")
+        st.stop()
+def append_df_to_df(df_new=pd.DataFrame(),df_old=pd.DataFrame(),table='',keys=[],date_cols=[],allow_duplicates=False):
+    """
+    Appends a dataframe to an existing Dataframe
+    keys: Fields that should not be duplicated, the old records are kept
+    table: Table which is source of the dataframe, just to show it in the error
+    date_cols: Columns transformed to date
+    """
+    if df_new.empty:
+        return
+    if not keys:
+        keys=df_new.columns
+    df_new=df_new.copy()
+    df_new=format_dates(df_new,date_cols)
+    df_old=format_dates(df_old,date_cols)
+    df_new=get_common_records(df_new,df_old,keys=keys,how='uncommon')
+    df_old=pd.concat([df_old,df_new])  
+    df_old.reset_index(inplace=True,drop=True)
+    df_grp=df_old.groupby(keys).count()
+    if allow_duplicates==True:
+        return df_old
+    df_grp=df_grp[df_grp[df_grp.columns[0]]>1]
+    if len(df_grp)>0:
+        df_grp.reset_index(inplace=True)
+        st.error(f"Hay duplicados en el archivo {table} para la llave {keys}:")
+        st.error(df_grp[keys].sort_values(keys))
+        st.stop()
+    return df_old
+
+def get_common_records(df_new=pd.DataFrame(),df_old=pd.DataFrame(),keys=[],how='common'):
+    """
+    Gets common records in two dataframes based on a key of columns
+    when getting uncommon only records the records of the new are returned
+    """
+    df_old=df_old.copy()
+    df_new=df_new.copy()
+    df_old['composite_key'] = list(zip(*(df_old[col] for col in keys)))
+    df_new['composite_key'] = list(zip(*(df_new[col] for col in keys)))
+    if how=='common':
+        df_new=df_new[df_new['composite_key'].isin(df_old['composite_key'])]
+    else:
+        df_new=df_new[~df_new['composite_key'].isin(df_old['composite_key'])]
+    df_new.drop(columns=['composite_key'],inplace=True)
+    return df_new
+
+
+    
 # =============================================================================
 # Main Functions
 # =============================================================================
 
-def create_plan():
-    state = load_state_pickle()
-    folder_output = state['folder_output']
-    file_selectors = state['selections']
-    output_paths = set_paths(folder_output)
-    col_rel = set_col_rel(output_paths)
-    df_col_rel = col_rel['col_rel']
-
-    if not os.path.exists(output_paths['path_xl_format']):
-        show_popup_message("No se encuentra el archivo: columns and formatting.xlsx")
-        raise SystemExit()
-
-    path_master_doblado = file_selectors['master_file']
-    df_master_doblado = load_excel_with_header_key(path_master_doblado, sheet_name='00. Formato para Master de WC', key_text='PN')
-    df_master_doblado = rename_columns(df_master_doblado, df_col_rel, table_from='Master Doblado', sheet_from='00. Formato para Master de WC')
-
-    path_routing = file_selectors['routing_file']
-    df_routing = load_excel_with_header_key(path_routing, sheet_name='Operations', key_text='Routing')
-    df_routing = rename_columns(df_routing, df_col_rel, table_from='Routing', sheet_from='Operations')
-
-    path_order_list = file_selectors['order_file']
+def verify_order_list():
+    #% Open order list
+    path_order_list = st.session_state.selected_paths['order_file']
     df_order_list = load_excel_with_header_key(path_order_list, key_text='Priority')
-    df_order_list = rename_columns(df_order_list, df_col_rel, table_from='Lista de ordenes')
+    df_order_list = rename_columns(df_order_list, st.session_state.df_col_rel, table_from='Lista de ordenes')
+    st.session_state.df_order_list=df_order_list
+    #% Open old plan
+    path_plan=st.session_state.output_paths['path_plan']
+    df_plan_old=read_predefined_excel(path_plan,df_columns=st.session_state.df_columns,table='Manufacturing plan',check_mandatory=True)
+    st.session_state.df_plan_old=df_plan_old
+    if len(df_plan_old)==0:
+        st.info("Ok")
+        return
+    df_plan_old=df_plan_old[~df_plan_old['status'].isna()]
+    st.session_state.df_plan_old=df_plan_old
+    #% Show orders already planned
+    df_already_planned=get_common_records(df_new=df_order_list,df_old=df_plan_old,keys=['wo','pn'])
+    if len(df_already_planned)==0:
+        st.info("Ok")
+        return
+    st.info("Las siguientes ordenes ya estan planeadas, continue si desea agregarlas al nuevo plan con cantidad diferente")
+    st.dataframe(df_already_planned)
+
+
+def create_plan():
+
+    if not os.path.exists(st.session_state.output_paths['path_xl_format']):
+        st.error("No se encuentra el archivo: columns and formatting.xlsx")
+        st.stop()
+
+    if 'df_plan_old' not in st.session_state:
+        st.error('Favor de verificar las ordenes')
+        return
+    
+    path_master_doblado = st.session_state.selected_paths['master_file']
+    df_master_doblado = load_excel_with_header_key(path_master_doblado, sheet_name='00. Formato para Master de WC', key_text='PN')
+    check_mandatory_columns_df(df_master_doblado.columns,df_columns=st.session_state.df_columns,table='Master Doblado',sheet='00. Formato para Master de WC')
+    df_master_doblado = rename_columns(df_master_doblado, st.session_state.df_col_rel, table_from='Master Doblado', sheet_from='00. Formato para Master de WC')
+
+    path_routing = st.session_state.selected_paths['routing_file']
+    df_routing = load_excel_with_header_key(path_routing, sheet_name='Operations', key_text='Routing')
+    df_routing = rename_columns(df_routing, st.session_state.df_col_rel, table_from='Routing', sheet_from='Operations')
+
+    path_order_list = st.session_state.selected_paths['order_file']
+    df_order_list = load_excel_with_header_key(path_order_list, key_text='Priority')
+    df_order_list = rename_columns(df_order_list, st.session_state.df_col_rel, table_from='Lista de ordenes')
+
+    path_plan=st.session_state.output_paths['path_plan']
+    df_plan_old=read_predefined_excel(path_plan,df_columns=st.session_state.df_columns,table='Manufacturing plan',check_mandatory=True)
 
     machine_status = {}
     assignments = []
@@ -186,8 +303,8 @@ def create_plan():
             if m not in machine_status:
                 machine_status[m] = {'day': 1, 'avail': copy(shifts), 'last_pn': None}
         if len(machines) == 0:
-            show_popup_message(f"Favor de asignar maquina al PN: {pn}")
-            raise SystemExit()
+            st.error(f"Favor de asignar maquina al PN: {pn}")
+            st.stop()
         while qty > 0:
             assigned = False
             for m in machines:
@@ -238,14 +355,72 @@ def create_plan():
                     machine_status[m]['day'] += 1
                     machine_status[m]['avail'] = copy(shifts)
                     machine_status[m]['last_pn'] = None
-
-    report = pd.DataFrame(assignments)
-    max_day = report['day'].max()
+    df_plan_new=get_predefined_df(df_columns=st.session_state.df_columns,table='Manufacturing plan')
+    df_plan_new = pd.concat([df_plan_new,pd.DataFrame(assignments)],ignore_index=True)
+    max_day = df_plan_new['day'].max()
     workdays = pd.bdate_range(start=pd.to_datetime(state['initial_date']), periods=max_day)
     day_to_date = {day: workdays[day - 1] for day in range(1, max_day + 1)}
-    report['date'] = report['day'].map(day_to_date)
-    report.sort_values(['date', 'machine', 'shift', 'priority', 'wo'], inplace=True)
-    report.to_excel(output_paths['path_plan'], index=False)
+    df_plan_new['date'] = df_plan_new['day'].map(day_to_date)
+    df_plan_new.sort_values(['date', 'machine', 'shift', 'priority', 'wo'], inplace=True)
+    df_plan_old=append_df_to_df(df_new=df_plan_new,df_old=df_plan_old,table='Manufacturing plan',keys=['wo','pn','pzas_x_hacer'],allow_duplicates=True)
+    path_plan=st.session_state.output_paths['path_plan']
+    df_plan_old.to_excel(path_plan,sheet_name='Manufacturing plan',index=False)
+    st.session_state.df_plan_old=df_plan_old
+    st.info("Plan creado")
+
+
+def generate_reports():
+    df_plan_old=st.session_state.df_plan_old.copy()
+    machines=df_plan_old['machine'].drop_duplicates().tolist()
+    group_cols=['date']
+    for machine in machines:
+        df=df_plan_old[df_plan_old['machine']==machine].copy()
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'Report'
+
+        # Write headers
+        titles = list(df.columns)
+        for idx, title in enumerate(titles, start=1):
+            ws.cell(row=1, column=idx, value=title)
+
+        current_row = 2
+        black_fill = PatternFill(start_color='000000', end_color='000000', fill_type='solid')
+
+        # Identify numeric columns for subtotals
+        numeric_cols = ['pzas_x_hacer','time_used']
+
+        groups = df.groupby(group_cols)
+        for date, group in groups:
+            start_row = current_row
+            # Data rows
+            for _, row in group.iterrows():
+                for col_idx, col in enumerate(titles, start=1):
+                    if col not in group_cols:
+                        ws.cell(row=current_row, column=col_idx, value=row[col])
+                current_row += 1
+            end_data_row = current_row - 1
+
+            # Subtotal row
+            for col_idx, col in enumerate(titles, start=1):
+                if col in numeric_cols:
+                    col_letter = get_column_letter(col_idx)
+                    formula = f"=SUM({col_letter}{start_row}:{col_letter}{end_data_row})"
+                    ws.cell(row=current_row, column=col_idx, value=formula)
+            current_row += 1
+        
+            # Blank line with black fill across data range
+            for col_idx in range(1, len(titles) + 1):
+                ws.cell(row=current_row, column=col_idx).fill = black_fill
+            current_row += 1
+
+            # Merge date cells and rotate text
+            ws.merge_cells(start_row=start_row, start_column=1, end_row=end_data_row+1, end_column=1)
+            date_cell = ws.cell(row=start_row, column=1, value=date[0])
+            date_cell.alignment = Alignment(textRotation=90, horizontal='center', vertical='center')
+            date_cell.number_format = 'mmmm, d, yyyy'
+        base, ext = os.path.splitext(st.session_state.output_paths['path_report'])
+        wb.save(f"{base} {machine}{ext}")
 
 def manage_file_selector(selector_key, display_label, state):
     if not state["selections"].get(selector_key):
@@ -266,6 +441,14 @@ def manage_file_selector(selector_key, display_label, state):
 # =============================================================================
 # Main Script: Streamlit App UI
 # =============================================================================
+
+state = load_state_pickle()
+st.session_state.folder_output = state['folder_output']
+st.session_state.selected_paths = state['selections']
+st.session_state.output_paths = set_paths(st.session_state.folder_output)
+st.session_state.col_rel = set_col_rel(st.session_state.output_paths)
+st.session_state.df_col_rel = st.session_state.col_rel['col_rel']
+st.session_state.df_columns = st.session_state.col_rel['columns']
 
 st.set_page_config(page_title="Plan de manufactura", page_icon=":factory:")
 st.markdown(
@@ -310,7 +493,11 @@ file_selectors = [
 for selector_key, display_label in file_selectors:
     manage_file_selector(selector_key, display_label, state)
 
+
 st.header("Crear Plan")
+if st.button("Verificar ordenes"):
+    verify_order_list()
+
 if st.button("Crear Plan"):
     if not (state.get("folder_output") and 
             state["selections"].get("master_file") and 
@@ -319,9 +506,7 @@ if st.button("Crear Plan"):
         st.error("Por favor seleccione los archivos mandatorios.")
     else:
         st.success("Creando plan...")
-        st.write("Output Folder:", state["folder_output"])
-        st.write("Fecha inicial de programacion:", state.get("initial_date"))
-        st.write("Master Doblado File:", state["selections"]["master_file"])
-        st.write("Lista de Ordenes File:", state["selections"]["order_file"])
-        st.write("Routing File:", state["selections"]["routing_file"])
         create_plan()
+
+if st.button("Generar reportes"):
+    generate_reports()
