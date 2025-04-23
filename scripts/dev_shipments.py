@@ -1,4 +1,4 @@
-#%%
+    #%%
 
 import os, shutil
 import pickle
@@ -143,7 +143,7 @@ st.success("Proceso de integración completado.")
 # - Si hay archivos seleccionados se integran a estos reportes
 
 
-# ### Consolidar
+# ### Consolida
 # - Korrus_data --> EDI Master
 # - InventoryStage --> Shipment to ELP
 # - Shipment transactions: Standalone file
@@ -217,33 +217,42 @@ if path_ship_cust_new!='Not selected':
 path_ship_elp_new=get_path(state,'InventoryStageBakup')
 if path_ship_elp_new!='Not selected':
     df_ship_elp_new=read_excel(path_ship_elp_new)
-    check_mandatory_cols(df_ship_elp_new.columns,'InventoryStageBakup')
-    df_ship_elp_new=df_ship_elp_new[df_ship_elp_new['Cliente']!='Total']
-    df_ship_elp_new=df_ship_elp_new[['Cliente','PO','Producto','Box Id','Cantidad']].ffill()
-    df_ship_elp_new=df_ship_elp_new[~df_ship_elp_new['PO'].isna()]
-    df=df_ship_elp_new['PO'].str.split('|', expand=True)
-    df_ship_elp_new['DZ']=''
-    if len(df.columns)>1:
-        df_ship_elp_new['DZ']=df[1].str.strip()
-        df_ship_elp_new['PO']=df[0].str.strip()
-    df_ship_elp_new['Producto']=df_ship_elp_new['Producto'].str.upper()
-    df_ship_elp_new['CUU ship Date']=state["fecha_shipments_elp"]
-    df_ship_elp_new['CUU ship Date']=pd.to_datetime(df_ship_elp_new['CUU ship Date']).dt.strftime('%m/%d/%Y')
+    if 'ShipDate Details' in path_ship_elp_new:
+        df_ship_elp_new=rename_columns(df_ship_elp_new,df_col_rel,table_from='ShipDate Details')
+        df_ship_elp_new['quantity']=1 
+    elif 'InventoryStageBakup' in path_ship_elp_new:
+        df_ship_elp_new=rename_columns(df_ship_elp_new,df_col_rel,table_from='InventoryStageBakup')
+        df_ship_elp_new=df_ship_elp_new[['family','po','modelo','box_id','quantity']].ffill()
+        df_ship_elp_new['shipment_date_elp']=state["fecha_shipments_elp"]
     df_ship_elp_new['BOX qty']=1
-    df_ship_elp_new=df_ship_elp_new.groupby(['PO','Producto','DZ','Box Id']).agg({
-        'Cantidad': 'sum',
+    df_ship_elp_new=df_ship_elp_new[df_ship_elp_new['family']!='Total']
+    df_ship_elp_new=df_ship_elp_new[~df_ship_elp_new['po'].isna()]
+    df=df_ship_elp_new['po'].str.split('|', expand=True)
+    df_ship_elp_new['dz']=''
+    if len(df.columns)>1:
+        df_ship_elp_new['dz']=df[1].str.strip()
+        df_ship_elp_new['po']=df[0].str.strip()
+    df_ship_elp_new['modelo']=df_ship_elp_new['modelo'].str.upper()
+    df_ship_elp_new['shipment_date_elp']=pd.to_datetime(df_ship_elp_new['shipment_date_elp']).dt.strftime('%m/%d/%Y')
+    # df_ship_elp_new=rename_columns(df_ship_elp_new,df_col_rel,table_from='InventoryStageBakup',table_to='ELP Master',sheet_to='Shipment to ELP')
+    df_ship_elp_new['dz'].fillna('NULL',inplace=True)
+    df_ship_elp_new.loc[df_ship_elp_new['dz']=='NA','dz']='NULL'
+    df_ship_elp_new=df_ship_elp_new.groupby(['po','modelo','dz','box_id']).agg({
+        'quantity': 'sum',
         'BOX qty':'count',
-        'CUU ship Date':'last'
+        'shipment_date_elp':'last'
     }).reset_index()
+    if 'ShipDate Details' in path_ship_elp_new:
+        df_ship_elp_new['BOX qty']=1
 
-    df_ship_elp_new=rename_columns(df_ship_elp_new,df_col_rel,table_from='InventoryStageBakup',table_to='ELP Master',sheet_to='Shipment to ELP')
-    df_ship_elp['DZ'].fillna('NULL',inplace=True)
-    df_ship_elp_new['DZ'].fillna('NULL',inplace=True)
-    df_ship_elp_new.loc[df_ship_elp_new['DZ']=='NA','DZ']='NULL'
-    df_ship_elp=append_df_to_df(df_new=df_ship_elp_new,df_old=df_ship_elp,table='Shipment to ELP',keys=['PO','PN','BOX ID','DZ'])
-    df_ship_elp['Family'].fillna('',inplace=True)
-    df_ship_elp['CUU ship Date']=pd.to_datetime(df_ship_elp['CUU ship Date'], errors='coerce').dt.strftime('%m/%d/%Y')
-    df_ship_elp=set_family(df_ship_elp,column='PN',dest_col='Family')
+    df_ship_elp=rename_columns(df_ship_elp,df_col_rel,table_from='ELP Master',sheet_from='Shipment to ELP')
+    #%%
+    df_ship_elp['dz'].fillna('NULL',inplace=True)
+    df_ship_elp=append_df_to_df(df_new=df_ship_elp_new,df_old=df_ship_elp,table='Shipment to ELP',keys=['po','modelo','box_id','dz'])
+    df_ship_elp['family'].fillna('',inplace=True)
+    df_ship_elp['shipment_date_elp']=pd.to_datetime(df_ship_elp['shipment_date_elp'], errors='coerce').dt.strftime('%m/%d/%Y')
+    df_ship_elp=set_family(df_ship_elp,column='modelo',dest_col='family')
+    df_ship_elp=rename_columns(df_ship_elp,df_col_rel=df_col_rel,table_to='ELP Master',sheet_to='Shipment to ELP')
 #%%
 # Ordenes Canceladas   
 
