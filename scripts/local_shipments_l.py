@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V34. 2025-04-22
+    - Nuevo formato analogo al inventorystage: ShipDate Details, correcciones
 - V33. 2025-04-21
     - Cambio shipment transactions por elp master
 - V32. 2025-04-14
@@ -412,7 +414,8 @@ def append_df_to_df(df_new=pd.DataFrame(),df_old=pd.DataFrame(),table='',keys=[]
     df_grp=df_grp[df_grp[df_grp.columns[0]]>1]
     if len(df_grp)>0:
         df_grp.reset_index(inplace=True)
-        st.error(f"Hay duplicados en el archivo {table} para la llave {keys}:",df_grp[keys].sort_values(keys))
+        st.error(f"Hay duplicados en el archivo {table} para la llave {keys}:")
+        st.dataframe(df_grp[keys].sort_values(keys))
         st.stop()
     return df_old
 
@@ -1145,6 +1148,7 @@ def generar_reportes():
     # - Shipment transactions: Standalone file
     #
     # Consolidar reportes 
+    st.session_state.running=True
     msg_reportes=st.empty()
     msg_reportes=st.info("Generando reportes")
     path_ship_elp=get_path(state,'ELP Master')
@@ -1212,35 +1216,41 @@ def generar_reportes():
     # InventoryStage, lo que se embarco a ELP 
     path_ship_elp_new=get_path(state,'InventoryStageBakup')
     if path_ship_elp_new!='Not selected':
-        msg_reportes.info("Integrando InventoryStageBackup")
         df_ship_elp_new=read_excel(path_ship_elp_new)
-        check_mandatory_cols(df_ship_elp_new.columns,'InventoryStageBakup')
-        df_ship_elp_new=df_ship_elp_new[df_ship_elp_new['Cliente']!='Total']
-        df_ship_elp_new=df_ship_elp_new[['Cliente','PO','Producto','Box Id','Cantidad']].ffill()
-        df_ship_elp_new=df_ship_elp_new[~df_ship_elp_new['PO'].isna()]
-        df=df_ship_elp_new['PO'].str.split('|', expand=True)
-        df_ship_elp_new['DZ']=''
-        if len(df.columns)>1:
-            df_ship_elp_new['DZ']=df[1].str.strip()
-            df_ship_elp_new['PO']=df[0].str.strip()
-        df_ship_elp_new['Producto']=df_ship_elp_new['Producto'].str.upper()
-        df_ship_elp_new['CUU ship Date']=state["fecha_shipments_elp"]
-        df_ship_elp_new['CUU ship Date']=pd.to_datetime(df_ship_elp_new['CUU ship Date']).dt.strftime('%m/%d/%Y')
+        if 'ShipDate Details' in path_ship_elp_new:
+            df_ship_elp_new=rename_columns(df_ship_elp_new,df_col_rel,table_from='ShipDate Details')
+            df_ship_elp_new['quantity']=1 
+        elif 'InventoryStageBakup' in path_ship_elp_new:
+            df_ship_elp_new=rename_columns(df_ship_elp_new,df_col_rel,table_from='InventoryStageBakup')
+            df_ship_elp_new=df_ship_elp_new[['family','po','modelo','box_id','quantity']].ffill()
+            df_ship_elp_new['shipment_date_elp']=state["fecha_shipments_elp"]
         df_ship_elp_new['BOX qty']=1
-        df_ship_elp_new=df_ship_elp_new.groupby(['PO','Producto','DZ','Box Id']).agg({
-            'Cantidad': 'sum',
+        df_ship_elp_new=df_ship_elp_new[df_ship_elp_new['family']!='Total']
+        df_ship_elp_new=df_ship_elp_new[~df_ship_elp_new['po'].isna()]
+        df=df_ship_elp_new['po'].str.split('|', expand=True)
+        df_ship_elp_new['dz']=''
+        if len(df.columns)>1:
+            df_ship_elp_new['dz']=df[1].str.strip()
+            df_ship_elp_new['po']=df[0].str.strip()
+        df_ship_elp_new['modelo']=df_ship_elp_new['modelo'].str.upper()
+        df_ship_elp_new['shipment_date_elp']=pd.to_datetime(df_ship_elp_new['shipment_date_elp']).dt.strftime('%m/%d/%Y')
+        # df_ship_elp_new=rename_columns(df_ship_elp_new,df_col_rel,table_from='InventoryStageBakup',table_to='ELP Master',sheet_to='Shipment to ELP')
+        df_ship_elp_new['dz'].fillna('NULL',inplace=True)
+        df_ship_elp_new.loc[df_ship_elp_new['dz']=='NA','dz']='NULL'
+        df_ship_elp_new=df_ship_elp_new.groupby(['po','modelo','dz','box_id']).agg({
+            'quantity': 'sum',
             'BOX qty':'count',
-            'CUU ship Date':'last'
+            'shipment_date_elp':'last'
         }).reset_index()
-
-        df_ship_elp_new=rename_columns(df_ship_elp_new,df_col_rel,table_from='InventoryStageBakup',table_to='ELP Master',sheet_to='Shipment to ELP')
-        df_ship_elp['DZ'].fillna('NULL',inplace=True)
-        df_ship_elp_new['DZ'].fillna('NULL',inplace=True)
-        df_ship_elp_new.loc[df_ship_elp_new['DZ']=='NA','DZ']='NULL'
-        df_ship_elp=append_df_to_df(df_new=df_ship_elp_new,df_old=df_ship_elp,table='Shipment to ELP',keys=['PO','PN','BOX ID','DZ'])
-        df_ship_elp['Family'].fillna('',inplace=True)
-        df_ship_elp['CUU ship Date']=pd.to_datetime(df_ship_elp['CUU ship Date'], errors='coerce').dt.strftime('%m/%d/%Y')
-        df_ship_elp=set_family(df_ship_elp,column='PN',dest_col='Family')
+        if 'ShipDate Details' in path_ship_elp_new:
+            df_ship_elp_new['BOX qty']=1
+        df_ship_elp=rename_columns(df_ship_elp,df_col_rel,table_from='ELP Master',sheet_from='Shipment to ELP')
+        df_ship_elp['dz'].fillna('NULL',inplace=True)
+        df_ship_elp=append_df_to_df(df_new=df_ship_elp_new,df_old=df_ship_elp,table='Shipment to ELP',keys=['po','modelo','box_id','dz'])
+        df_ship_elp['family'].fillna('',inplace=True)
+        df_ship_elp['shipment_date_elp']=pd.to_datetime(df_ship_elp['shipment_date_elp'], errors='coerce').dt.strftime('%m/%d/%Y')
+        df_ship_elp=set_family(df_ship_elp,column='modelo',dest_col='family')
+        df_ship_elp=rename_columns(df_ship_elp,df_col_rel=df_col_rel,table_to='ELP Master',sheet_to='Shipment to ELP')
 
     # Ordenes Canceladas   
     msg_reportes.info("Integrando Ordenes canceladas")
@@ -1264,10 +1274,7 @@ def generar_reportes():
     date_cols=df_columns[(df_columns['sheet']=='Shipment to ELP')&(df_columns['data_type']=='date')]['column_name'].to_list()
     wb_elp=format_xl_dates(wb_elp,sheet_name='Shipment to ELP',date_columns=date_cols)
     msg_reportes.info("Guardando Elp Master")
-
     save_wb(wb_elp,path_ship_elp)
-
-
     # Reporte de work orders, que se encuentra en proceso de produccion
     msg_reportes.info("Integrando tracker")
     path_tracker=get_path(state,'Tracker')
@@ -1604,6 +1611,7 @@ def generar_reportes():
 
     save_wb(wb_oor_old,path_oor_old)
     os.startfile(path_oor_old)
+    st.session_state.running=False
 
 def fill_aar():
     st.write("Ejecutando función: AAR")
@@ -2329,6 +2337,7 @@ def parse_value(value):
 # Function: Explorar Outlook (with Excel management and file integration)
 # ----------------------------------------------------------------
 def explorar_outlook():
+    st.session_state.running=True
     st.write("Ejecutando función: Explorar Outlook")
     # Ensure a folder was selected from Outlook
     if "mail_folder" not in st.session_state or st.session_state.mail_folder is None:
@@ -2446,10 +2455,12 @@ def explorar_outlook():
     save_df(df_korrus_list_new,filepath=output_paths['path_korrus_list'],sheet_name='Korrus List',index=False)
     save_df(df_korrus_data_new,filepath=output_paths['path_korrus_data'],sheet_name='Korrus Data',index=False)
     st.success("Proceso de integración completado.")
+    st.session_state.running=False
 
 # ----------------------------------------------------------------
 # Streamlit UI
 # ----------------------------------------------------------------
+st.session_state.running=False
 st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
 st.title("Seguimiento a Embarques")
 
@@ -2499,7 +2510,7 @@ if fecha_mail_input != state.get("fecha_mail"):
     state["fecha_mail"] = fecha_mail_input
     save_state_pickle(state)
 
-fecha_shipments_input = st.date_input("ELP Shipments", value=state.get("fecha_shipments_elp") or date.today())
+fecha_shipments_input = st.date_input("ELP Shipments", value=date.today())
 if fecha_shipments_input != state.get("fecha_shipments_elp"):
     state["fecha_shipments_elp"] = fecha_shipments_input
     save_state_pickle(state)
@@ -2527,32 +2538,16 @@ if state.get("folder_yield"):
 else:
     st.info("No se ha seleccionado carpeta de Yield reports.")
 
-# # Agregar 5 botones para ejecutar funciones específicas
-# st.header("Procesos")
-# col1, col2, col3, col4, col5 = st.columns(5)
-# with col1:
-#     if st.button("Explorar Outlook"):
-#         explorar_outlook()
-# with col2:
-#     if st.button("Generar Reportes"):
-#         generar_reportes()
-# with col3:
-#     if st.button("AAR"):
-#         fill_aar()
-# with col4:
-#     if st.button("Gating Parts"):
-#         gating_parts()
-# with col5:
-#     if st.button("Actualizar Status"):
-#         actualizar_status()
-        
 st.header("Procesos")
 
 if st.button("Explorar Outlook", key="explorar_outlook"):
     explorar_outlook()
     st.session_state.explorar_msg = "Exploración completada."
+    st.info(st.session_state.running)
+
 if "explorar_msg" in st.session_state:
     st.write(st.session_state.explorar_msg)
+
 
 if st.button("Generar Reportes", key="generar_reportes"):
     generar_reportes()
