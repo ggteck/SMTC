@@ -15,6 +15,7 @@ output_paths = set_paths(folder_output)
 col_rel = set_col_rel(output_paths)
 df_col_rel = col_rel['col_rel']
 df_columns=col_rel['columns']
+#%%
 
 #%%
 
@@ -45,16 +46,22 @@ st.info("Las siguientes ordenes ya estan planeadas, continue si desea agregarlas
 st.info(df_already_planned)
 
 #%%
+df_order_list
+#%%
+
+
+#%%
 machine_status = {}
 assignments = []
 df_order_list.sort_values('priority', inplace=True)
-shifts = {'PRIMER TURNO': 8.0, 'SEGUNDO TURNO': 7.0}
+
+shifts = {'PRIMER TURNO': int(state['time_first_shift']), 'SEGUNDO TURNO': int(state['time_first_shift'])}
 for idx, order in df_order_list.iterrows():
     pn = order['pn']
     qty = order['pzas_x_hacer']
     wo = order['wo']
     pty = order['priority']
-    pn_info = df_routing[(df_routing['pn'] == pn)&(df_routing['operation_description']=='DOBLADO')]
+    pn_info = df_routing[(df_routing['pn'] == pn)&(df_routing['operation_description']==state['routing_name'])]
     if pn_info.empty:
         continue
     run_time = pn_info.iloc[0]['run_time']
@@ -132,8 +139,9 @@ day_to_date = {day: workdays[day - 1] for day in range(1, max_day + 1)}
 df_plan_new['date'] = df_plan_new['day'].map(day_to_date)
 df_plan_new.sort_values(['date', 'machine', 'shift', 'priority', 'wo'], inplace=True)
 #%%
-
+df_plan_new
 #%%
+df_plan_old=df_plan_old[~df_plan_old['status'].isnull()]
 df_plan_old=append_df_to_df(df_new=df_plan_new,df_old=df_plan_old,table='Manufacturing plan',keys=['wo','pn'],allow_duplicates=True)
 #%%
 df_plan_old.to_excel(path_plan,index=False)
