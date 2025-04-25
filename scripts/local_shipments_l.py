@@ -1,5 +1,10 @@
 """
 # Seguimiento a embarques
+- V35. 2025-04-24
+    - Manejo de columnas OH Max por posicion
+    - Filtros del OH Max
+    - Se divide el proceso EDI/OOR
+    - Mejora manejo de mensajes
 - V34. 2025-04-22
     - Nuevo formato analogo al inventorystage: ShipDate Details, correcciones
 - V33. 2025-04-21
@@ -1136,12 +1141,8 @@ def verify_selections(file_selectors):
 # ----------------------------------------------------------------
 # Dummy functions for the 5 process buttons
 # ----------------------------------------------------------------
-def generar_reportes():    
-    # ## Generar reportes
-    # - Hay tres reportes EDI Master, Shipped to Cust, Shipped to ELP
-    # - Si hay archivos seleccionados se integran a estos reportes
 
-
+def update_edi():
     # ### Consolidar
     # - Korrus_data --> EDI Master
     # - InventoryStage --> Shipment to ELP
@@ -1149,8 +1150,17 @@ def generar_reportes():
     #
     # Consolidar reportes 
     st.session_state.running=True
-    msg_reportes=st.empty()
-    msg_reportes=st.info("Generando reportes")
+    msg_edi_update=st.empty()
+    msg_edi_update.info("Actualizando EDI")
+    path_ship_cust_new=get_path(state,'Shipment transactions')
+    close_xl_if_open(path_ship_cust_new)
+    path_ship_elp_new=get_path(state,'InventoryStageBakup')
+    close_xl_if_open(path_ship_elp_new)
+    st.session_state.path_tracker=get_path(state,'Tracker')
+    close_xl_if_open(st.session_state.path_tracker)
+    st.session_state.path_prices=get_path(state,'Prices')
+    if st.session_state.path_prices!='Not selected':
+        close_xl_if_open(st.session_state.path_prices)
     path_ship_elp=get_path(state,'ELP Master')
     close_xl_if_open(path_ship_elp)
     path_oor_old=get_path(state,'OOR')
@@ -1177,7 +1187,7 @@ def generar_reportes():
 
     df_korrus_data_new=pd.read_excel(output_paths['path_korrus_data'])
     if (len(df_korrus_data_new)>0):
-        msg_reportes.info("Integrando Korrus data")
+        msg_edi_update.info("Integrando Korrus data")
         df_korrus_data_new=df_korrus_data_new.loc[:, ~df_korrus_data_new.columns.str.startswith('Unnamed:')]
         df_korrus_data_new=df_korrus_data_new[~df_korrus_data_new['PurchaseOrder'].str.contains('---')]
         df_korrus_data_new['PODate']=pd.to_datetime(df_korrus_data_new['PODate'],format='mixed', errors='coerce')
@@ -1205,7 +1215,6 @@ def generar_reportes():
 
 
     # Shipment transactions, lo embarcado al cliente
-    path_ship_cust_new=get_path(state,'Shipment transactions')
     if path_ship_cust_new!='Not selected':
         df_ship_cust_new=load_excel_with_header_key(path_ship_cust_new,sheet_name='Embarques from ELP',key_text='Fecha de Embarque')
         df_ship_cust_new=rename_columns(df_ship_cust_new,df_col_rel=df_col_rel,table_from='ELP Master',sheet_from='Embarques from ELP')
@@ -1214,7 +1223,6 @@ def generar_reportes():
         save_df(df_ship_cust_new,output_paths['path_ship_cust'],sheet_name='Shipped to Cust',index=False)
         
     # InventoryStage, lo que se embarco a ELP 
-    path_ship_elp_new=get_path(state,'InventoryStageBakup')
     if path_ship_elp_new!='Not selected':
         df_ship_elp_new=read_excel(path_ship_elp_new)
         if 'ShipDate Details' in path_ship_elp_new:
@@ -1253,7 +1261,7 @@ def generar_reportes():
         df_ship_elp=rename_columns(df_ship_elp,df_col_rel=df_col_rel,table_to='ELP Master',sheet_to='Shipment to ELP')
 
     # Ordenes Canceladas   
-    msg_reportes.info("Integrando Ordenes canceladas")
+    msg_edi_update.info("Integrando Ordenes canceladas")
     df_cancelled=read_excel(path_ship_elp,sheet_name='Cancelled Orders')
     df_cancelled=rename_columns(df_cancelled,df_col_rel,table_from='ELP Master',sheet_from='Cancelled Orders',table_to='ELP Master',sheet_to='EDI Master')
     df_cancelled=df_cancelled[['PO','ProductService ID','LineNumber']].drop_duplicates()
@@ -1273,16 +1281,34 @@ def generar_reportes():
     wb_elp=format_xl_dates(wb_elp,sheet_name='EDI Master',date_columns=date_cols)
     date_cols=df_columns[(df_columns['sheet']=='Shipment to ELP')&(df_columns['data_type']=='date')]['column_name'].to_list()
     wb_elp=format_xl_dates(wb_elp,sheet_name='Shipment to ELP',date_columns=date_cols)
-    msg_reportes.info("Guardando Elp Master")
+    msg_edi_update.info("Guardando EDI")
     save_wb(wb_elp,path_ship_elp)
+    msg_edi_update.info("EDI Actualizado, verifique que se sincronice")
+    os.startfile(path_ship_elp)
+    st.session_state.df_edi=df_edi
+    st.session_state.df_ship_elp=df_ship_elp
+
+def update_oor():    
+    # ## Consolidar reportes y Actualizar OOR
+    # - Hay tres reportes EDI Master, Shipped to Cust, Shipped to ELP
+    # - Si hay archivos seleccionados se integran a estos reportes
+    msg_oor_update=st.empty()
+    if not 'df_edi' in st.session_state:
+        msg_oor_update.error("Actualizar edi al menos una vez")
+        st.stop()
+    path_oor_old=get_path(state,'OOR')
+    close_xl_if_open(path_oor_old)
+    df_edi=st.session_state.df_edi.copy()
+    df_ship_elp=st.session_state.df_ship_elp.copy()
+
+    msg_oor_update=st.info("Generando reportes")
     # Reporte de work orders, que se encuentra en proceso de produccion
-    msg_reportes.info("Integrando tracker")
-    path_tracker=get_path(state,'Tracker')
-    xls = pd.ExcelFile(path_tracker)
+    msg_oor_update.info("Integrando tracker")
+    xls = pd.ExcelFile(st.session_state.path_tracker)
     wo_sheets=[sheet for sheet in xls.sheet_names if (('Plan de produccion' in sheet) or ('TERMINADAS' in sheet))]
     df_wo=pd.DataFrame()
     for sheet in wo_sheets:
-        df_wo=pd.concat([df_wo,pd.read_excel(path_tracker,sheet_name=sheet)])
+        df_wo=pd.concat([df_wo,pd.read_excel(st.session_state.path_tracker,sheet_name=sheet)])
         df_wo.dropna(subset=['PO cliente','Modelo'],inplace=True)
     check_mandatory_cols(df_wo.columns,'Tracker')
     df_wo=rename_columns(df_wo,df_col_rel,table_from='Tracker',sheet_from='Plan de produccion')
@@ -1333,7 +1359,7 @@ def generar_reportes():
     df_ship_elp=df_ship_elp.merge(df_edi_po_dates,how='left',on=['po','modelo'])
     df_ship_elp=df_ship_elp[df_ship_elp['po_date']>pd.to_datetime(state["fecha_freeze"])]
 
-    msg_reportes.info("Asignando ordenes")
+    msg_oor_update.info("Asignando ordenes")
     assignments_wo=assign_quantities(df_pos=df_edi,df_to_assign=df_wo,additional_fields=['WO','START DATE','FINISH DATE','reprogrammed_cuu','estimated_move_date_cuu'])
     df_edi_combined=assignments_wo['df_pos']
     df_edi_combined.rename({'Assigned':'WO Qty'},axis=1,inplace=True)
@@ -1460,18 +1486,17 @@ def generar_reportes():
     df_edi_combined['WO'].fillna('',inplace=True)
 
     # Get prices if selected
-    path_prices=get_path(state,'Prices')
     df_prices=pd.DataFrame()
-    if path_prices!='Not selected':
-        msg_reportes.info("Integrando precios")
-        df_prices=read_excel(path_prices)
+    if st.session_state.path_prices!='Not selected':
+        msg_oor_update.info("Integrando precios")
+        df_prices=read_excel(st.session_state.path_prices)
         df_prices=rename_columns(df_prices,df_col_rel,table_from='Prices',table_to='OOR Report',sheet_to='OOR')
         df_prices=df_prices[['ProductServiceID','Price']]
         df_prices.drop_duplicates(['ProductServiceID'],keep='last',inplace=True)
 
     # ### Actualizar OOR con datos nuevos
 
-    st.info("Actualizando OOR")
+    msg_oor_update.info("Actualizando OOR")
     # Actualizar OOR
     df_oor=rename_columns(df_edi_combined,df_col_rel,table_from='EDI Combined',table_to='OOR Report',sheet_to='OOR')
 
@@ -1496,10 +1521,6 @@ def generar_reportes():
     df_oor=df_oor[df_oor['POUS Date'] >= pd.to_datetime(state["fecha_freeze"])]
 
     #Integrar datos al OOR Anterior
-    path_oor_old=get_path(state,'OOR')
-
-    close_xl_if_open(path_oor_old)
-    # sheet_rel=extract_selected_sheets(path_oor_old,sheets_to_keep,keep_original=False)
     wb_oor_old=load_workbook(path_oor_old)
     wb_oor_old._external_links.clear()
     ws_oor_old=wb_oor_old['OOR']
@@ -1526,14 +1547,25 @@ def generar_reportes():
 
     if path_oh_max!="Not selected":
         # Se actualiza el OH Max para todo el workbook ya que la formula toma en cuenta los embarcados y duplicados
+        msg_oor_update.info("Integrando OH Max")
         df_oh_max=read_excel(path_oh_max)
+        if df_oh_max.shape[1]!=6:
+            st.error("Numero incorrecto de columnas en OH Max")
+            st.stop()
+        df_oh_max.columns=['modelo','description','oh_max','uom','stock_id','zone']
+        df_oh_max = df_oh_max[pd.to_numeric(df_oh_max['oh_max'], errors='coerce').notna()]
+        df_oh_max['oh_max']=pd.to_numeric(df_oh_max['oh_max'])
+        df_oh_max=df_oh_max[~df_oh_max['stock_id'].str.upper().str.strip().isin(['KITS','PURGE','OUT','PP'])]
         df_oh_max=rename_columns(df_oh_max,df_col_rel,table_from='OH Max',sheet_from='only',table_to='OOR Report',sheet_to='OOR')
         df_oh_max=df_oh_max.groupby(['ProductServiceID']).sum('OH MAX')
         df_oh_max.reset_index(inplace=True)
         if 'OH MAX' in df_oor_old.columns:
             df_oor_old.drop(columns='OH MAX',inplace=True)
         df_oor_old=df_oor_old.merge(df_oh_max,how='left',on='ProductServiceID')
+        if not 'OH MAX' in df_oor_old.columns:
+            df_oor_old['OH MAX']=0    
         df_oor_old['OH MAX'].fillna(0,inplace=True)
+
     df_oor_old=df_oor_old.merge(df_edi_rec_dates,how='left',on=key_cols,suffixes=('', '_new'))
     df_oor_old.loc[df_oor_old['EDI Received'].isna(),'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received'].isna(),'EDI Received_new']
     df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received_new']
@@ -1543,12 +1575,15 @@ def generar_reportes():
     if len(df_prices)>0:
         # if 'Price' in df_oor_old.columns:
         #     df_oor_old.drop(columns=['Price'],inplace=True)
+        msg_oor_update.info("Integrando precios")
         df_oor_old=df_oor_old.merge(df_prices,how='left',on=['ProductServiceID'])
 
+    msg_oor_update.info("Actualizando oor")
     ws_oor_old=update_sheet(dict_oor_old,ws_oor_old)
     # Value A1=1 is just to check later if formulas are evaluated
     ws_oor_old['A1'].value="=1"
 
+    msg_oor_update.info("Dando formato")
     # Put date in oh max column
 
     cell=find_cell_by_text(ws_oor_old,'OH MAX')
@@ -1608,8 +1643,9 @@ def generar_reportes():
     col_info1=get_column_info(ws,'po')['data_range']
     col_info2=get_column_info(ws,'modelo')['data_range']
     format_on_change(zip(col_info1,col_info2),ws,start_row=1,format1=dict_special_formats['on_change_a'],format2=dict_special_formats['on_change_b'])
-
+    msg_oor_update.info("Guardando OOR")
     save_wb(wb_oor_old,path_oor_old)
+    msg_oor_update.info("Guardado, verifique la sincronizacion")
     os.startfile(path_oor_old)
     st.session_state.running=False
 
@@ -2337,7 +2373,6 @@ def parse_value(value):
 # Function: Explorar Outlook (with Excel management and file integration)
 # ----------------------------------------------------------------
 def explorar_outlook():
-    st.session_state.running=True
     st.write("Ejecutando función: Explorar Outlook")
     # Ensure a folder was selected from Outlook
     if "mail_folder" not in st.session_state or st.session_state.mail_folder is None:
@@ -2377,7 +2412,6 @@ def explorar_outlook():
                     new_name = f"{base}_{received_time.strftime('%Y-%m-%d-%H%M%S')}{ext}"
                     save_path = os.path.join(output_paths['path_attachments'], new_name)
                     attachment.SaveAsFile(save_path)
-                    st.write(f"Attachment saved: {save_path}")
                     count += 1
                 except Exception as e:
                     st.write(f"Error saving attachment: {str(e)}")
@@ -2455,7 +2489,6 @@ def explorar_outlook():
     save_df(df_korrus_list_new,filepath=output_paths['path_korrus_list'],sheet_name='Korrus List',index=False)
     save_df(df_korrus_data_new,filepath=output_paths['path_korrus_data'],sheet_name='Korrus Data',index=False)
     st.success("Proceso de integración completado.")
-    st.session_state.running=False
 
 # ----------------------------------------------------------------
 # Streamlit UI
@@ -2543,15 +2576,18 @@ st.header("Procesos")
 if st.button("Explorar Outlook", key="explorar_outlook"):
     explorar_outlook()
     st.session_state.explorar_msg = "Exploración completada."
-    st.info(st.session_state.running)
 
 if "explorar_msg" in st.session_state:
     st.write(st.session_state.explorar_msg)
 
 
+if st.button("Actualizar EDI Master", key="update_edi"):
+    update_edi()
+if "edi_msg" in st.session_state:
+    st.write(st.session_state.reportes_msg)
+
 if st.button("Generar Reportes", key="generar_reportes"):
-    generar_reportes()
-    st.session_state.reportes_msg = "Reportes generados."
+    update_oor()
 if "reportes_msg" in st.session_state:
     st.write(st.session_state.reportes_msg)
 
