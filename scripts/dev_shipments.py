@@ -354,7 +354,7 @@ df_ship_cust_dates=df_ship_cust_dates.merge(df_edi_po_dates,how='left',on=['po',
 df_ship_cust_dates=df_ship_cust_dates[df_ship_cust_dates['po_date']>pd.to_datetime(state["fecha_freeze"])]
 df_ship_elp=df_ship_elp.merge(df_edi_po_dates,how='left',on=['po','modelo'])
 df_ship_elp=df_ship_elp[df_ship_elp['po_date']>pd.to_datetime(state["fecha_freeze"])]
-
+#%%
 assignments_wo=assign_quantities(df_pos=df_edi,df_to_assign=df_wo,additional_fields=['WO','START DATE','FINISH DATE','reprogrammed_cuu','estimated_move_date_cuu'])
 df_edi_combined=assignments_wo['df_pos']
 df_edi_combined.rename({'Assigned':'WO Qty'},axis=1,inplace=True)
@@ -364,7 +364,8 @@ df_edi_combined.rename({'Assigned':'Shipped to Cust'},axis=1,inplace=True)
 assignments_shp_elp=assign_quantities(df_pos=df_edi_combined,df_to_assign=df_ship_elp,additional_fields=['shipment_date_elp'])
 df_edi_combined=assignments_shp_elp['df_pos']
 df_edi_combined.rename({'Assigned':'Shipped to Elp'},axis=1,inplace=True)
-
+#%%
+df_edi_combined
 #%%
 # ### OOR Report
 
@@ -402,7 +403,7 @@ df_edi_combined=merge_additional_fields(df_assigned_shp_cust,
                            sort_fields=['shipment_date_cust'],
                            key=['po','modelo','LineNumber'])
 
-
+#%%
 # Set production, and shipped STATUS
 df_edi_combined[['quantity','WO Qty','Shipped to Elp','Shipped to Cust']].fillna(0,inplace=True)
 df_edi_combined['quantity']=df_edi_combined['quantity'].astype(float)
@@ -543,23 +544,35 @@ df_oor_old.reset_index(drop=True,inplace=True)
 #%%
 
 path_oh_max=get_path(state,'OH Max')
+df_oh_max=read_excel(path_oh_max,header=None)
 
+df_oh_max['oh_max']
+#%%
 if path_oh_max!="Not selected":
     # Se actualiza el OH Max para todo el workbook ya que la formula toma en cuenta los embarcados y duplicados
     df_oh_max=read_excel(path_oh_max)
+
+    if df_oh_max.shape[1]!=6:
+        print("Numero incorrecto de columnas en OH Max")
+    df_oh_max.columns=['modelo','description','oh_max','uom','stock_id','zone']
+    df_oh_max = df_oh_max[pd.to_numeric(df_oh_max['oh_max'], errors='coerce').notna()]
+    df_oh_max['oh_max']=pd.to_numeric(df_oh_max['oh_max'])
+    df_oh_max=df_oh_max[~df_oh_max['stock_id'].str.upper().str.strip().isin(['KITS','PURGE','OUT','PP'])]
     df_oh_max=rename_columns(df_oh_max,df_col_rel,table_from='OH Max',sheet_from='only',table_to='OOR Report',sheet_to='OOR')
     df_oh_max=df_oh_max.groupby(['ProductServiceID']).sum('OH MAX')
     df_oh_max.reset_index(inplace=True)
     if 'OH MAX' in df_oor_old.columns:
         df_oor_old.drop(columns='OH MAX',inplace=True)
     df_oor_old=df_oor_old.merge(df_oh_max,how='left',on='ProductServiceID')
+    if not 'OH MAX' in df_oor_old.columns:
+        df_oor_old['OH MAX']=0    
     df_oor_old['OH MAX'].fillna(0,inplace=True)
-#%%
+
 df_oor_old=df_oor_old.merge(df_edi_rec_dates,how='left',on=key_cols,suffixes=('', '_new'))
 df_oor_old.loc[df_oor_old['EDI Received'].isna(),'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received'].isna(),'EDI Received_new']
 df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received_new']
 df_oor_old.drop(columns='EDI Received_new',inplace=True)
-
+#%%
 #%%
 if len(df_prices)>0:
     if 'Price' in df_oor_old.columns:
