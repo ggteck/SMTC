@@ -1,4 +1,6 @@
 # Manufacturing plan
+# - V5. 2025-04-27
+#     - Mejoras, horas por maquina, orden de columnas depende del archivo de formatos
 # - V4. 2025-04-21
 #     - Correccion a extraccion de routers, se agregan variables routers, turnos
 # - V3. 2025-04-21
@@ -18,6 +20,8 @@ from copy import copy
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Alignment
 from openpyxl.utils import get_column_letter
+import win32com.client
+
 
 # =============================================================================
 # File/Directory & System Utilities
@@ -99,6 +103,31 @@ def load_state_pickle(filename='folder_state_planner.pkl'):
             return pickle.load(f)
     except FileNotFoundError:
         return {"folder_output": None, "selections": {}, "initial_date": datetime.date.today()}
+
+def is_file_open(filepath):
+    # Check if the file exists
+    if not os.path.exists(filepath):
+        return False  # File does not exist, so treat it as "open" for your logic
+
+    try:
+        # Try to open the file in write mode
+        with open(filepath, 'a'):
+            pass
+        return False  # File is not open (no exception raised)
+    except PermissionError:
+        return True 
+    
+def close_xl_if_open(path):
+    if is_file_open(path):
+        try:
+            excel = win32com.client.Dispatch("Excel.Application")
+            workbook = excel.Workbooks(path)
+            workbook.Save()
+            workbook.Close()
+        except:
+            st.error(f"Cerrar el archivo: {path}")
+            st.stop()   
+
 
 # =============================================================================
 # DataFrame Management & Data Processing
@@ -254,19 +283,27 @@ def verify_order_list():
 
 
 def create_plan():
-    
     if not os.path.exists(st.session_state.output_paths['path_xl_format']):
         st.error("No se encuentra el archivo: columns and formatting.xlsx")
         st.stop()
-
     if 'df_plan_old' not in st.session_state:
         st.error('Favor de verificar las ordenes')
         return
-    
+    path_available_hours=st.session_state.selected_paths['available_hours']
+
+    df_avail_hours=read_excel(path=path_available_hours)
+    df_avail_hours=df_avail_hours[['maquina','tiempo_primer_turno','tiempo_segundo_turno']]
+    dict_avail_hours=df_avail_hours.set_index('maquina').to_dict(orient='index')
+
+    df_col_rel=st.session_state.df_col_rel
+    path_plan=st.session_state.output_paths['path_plan']
+    df_columns=st.session_state.df_columns
+    close_xl_if_open(path_plan)
     path_master_doblado = st.session_state.selected_paths['master_file']
     df_master_doblado = load_excel_with_header_key(path_master_doblado, sheet_name='00. Formato para Master de WC', key_text='PN')
-    check_mandatory_columns_df(df_master_doblado.columns,df_columns=st.session_state.df_columns,table='Master Doblado',sheet='00. Formato para Master de WC')
+    check_mandatory_columns_df(df_master_doblado.columns,df_columns=df_columns,table='Master Doblado',sheet='00. Formato para Master de WC')
     df_master_doblado = rename_columns(df_master_doblado, st.session_state.df_col_rel, table_from='Master Doblado', sheet_from='00. Formato para Master de WC')
+    df_master_doblado.replace('/','_',regex=True,inplace=True)
 
     path_routing = st.session_state.selected_paths['routing_file']
     df_routing = load_excel_with_header_key(path_routing, sheet_name='Operations', key_text='Routing')
@@ -276,8 +313,8 @@ def create_plan():
     df_order_list = load_excel_with_header_key(path_order_list, key_text='Priority')
     df_order_list = rename_columns(df_order_list, st.session_state.df_col_rel, table_from='Lista de ordenes')
 
-    path_plan=st.session_state.output_paths['path_plan']
-    df_plan_old=read_predefined_excel(path_plan,df_columns=st.session_state.df_columns,table='Manufacturing plan',check_mandatory=True)
+    df_plan_old=read_predefined_excel(path_plan,df_columns=df_columns,table='Manufacturing plan',check_mandatory=True)
+    df_plan_old=rename_columns(df_plan_old,df_col_rel=df_col_rel,table_from='Manufacturing plan')
 
     machine_status = {}
     assignments = []
@@ -292,41 +329,48 @@ def create_plan():
         qty = order['pzas_x_hacer']
         wo = order['wo']
         pty = order['priority']
+        machine_default=order['machine']
         pn_info = df_routing[(df_routing['pn'] == pn)&(df_routing['operation_description']==state['routing_name'])]
         if pn_info.empty:
             continue
         run_time = pn_info.iloc[0]['run_time']
         setup_time = pn_info.iloc[0]['setup_time']
-        pn_machines = df_master_doblado[df_master_doblado['pn'] == pn]
-        if pn_machines.empty:
-            continue
-        row = pn_machines.iloc[0]
-        machines = []
-        for key, item in row.items():
-            if ('maq_opc' in key) and (item is not None) and (item != ''):
-                machines.append(item)
+        if machine_default:
+            machines=[machine_default]
+        else:
+            pn_machines = df_master_doblado[df_master_doblado['pn'] == pn]
+            if pn_machines.empty:
+                continue
+            row = pn_machines.iloc[0]
+            machines = []
+            for key, item in row.items():
+                if ('maq_opc' in key) and (item is not None) and (item != ''):
+                    machines.append(item)
         for m in machines:
             if m not in machine_status:
-                machine_status[m] = {'day': 1, 'avail': copy(shifts), 'last_pn': None}
+                if not m in dict_avail_hours:
+                    st.error(f"Falta definir horas disponibles en la maquina {m}")
+                    st.stop()
+                machine_status[m] = {'day': 1, 'avail': copy(dict_avail_hours[m]), 'last_pn': None}
         if len(machines) == 0:
             print(f"Favor de asignar maquina al PN: {pn}")
             raise SystemExit()
         while qty > 0:
             assigned = False
             for m in machines:
-                for shift in shifts.keys():
+                for shift in machine_status[m]['avail'].keys():
                     available_time = machine_status[m]['avail'][shift]
                     if machine_status[m]['last_pn'] != pn:
                         if run_time == 0:
                             pieces_to_assign = qty
-                            time_used = setup_time
+                            time_used = 0
                         else:
-                            if available_time < (setup_time + run_time):
+                            if available_time < (run_time):
                                 continue
-                            pieces_possible = 1 + int((available_time - (setup_time + run_time)) / run_time)
+                            pieces_possible = 1 + int((available_time - (run_time)) / run_time)
                             pieces_possible = max(pieces_possible, 1)
                             pieces_to_assign = min(pieces_possible, qty)
-                            time_used = setup_time + pieces_to_assign * run_time
+                            time_used = pieces_to_assign * run_time
                     else:
                         if run_time == 0:
                             pieces_to_assign = qty
@@ -346,7 +390,8 @@ def create_plan():
                         'wo': wo,
                         'priority': pty,
                         'pzas_x_hacer': pieces_to_assign,
-                        'time_used': time_used
+                        'time_used': time_used,
+                        'setup_time':setup_time
                     })
                     machine_status[m]['avail'][shift] -= time_used
                     machine_status[m]['last_pn'] = pn
@@ -359,30 +404,53 @@ def create_plan():
             if not assigned:
                 for m in machines:
                     machine_status[m]['day'] += 1
-                    machine_status[m]['avail'] = copy(shifts)
+                    machine_status[m]['avail'] = copy(dict_avail_hours[m])
                     machine_status[m]['last_pn'] = None
 
-    df_plan_new=get_predefined_df(df_columns=st.session_state.df_columns,table='Manufacturing plan')
+    df_plan_new=get_predefined_df(df_columns=df_columns,table='Manufacturing plan')
     df_plan_new = pd.concat([df_plan_new,pd.DataFrame(assignments)],ignore_index=True)
     max_day = df_plan_new['day'].max()
     workdays = pd.bdate_range(start=pd.to_datetime(state['initial_date']), periods=max_day)
-    day_to_date = {day: workdays[day - 1] for day in range(1, max_day + 1)}
+    day_to_date = {day: workdays[day - 1] for day in range(1, int(max_day) + 1)}
     df_plan_new['date'] = df_plan_new['day'].map(day_to_date)
     df_plan_new.sort_values(['date', 'machine', 'shift', 'priority', 'wo'], inplace=True)
+    df_plan_new['pzas_x_hora']=(df_plan_new['pzas_x_hacer']/df_plan_new['time_used']).astype(float).round(2)
+    df_plan_new['time_used']=df_plan_new['time_used'].astype(float).round(2)
     df_plan_old=df_plan_old[~df_plan_old['status'].isnull()]
     df_plan_old=append_df_to_df(df_new=df_plan_new,df_old=df_plan_old,table='Manufacturing plan',keys=['wo','pn','pzas_x_hacer'],allow_duplicates=True)
+
+    plan_cols=df_columns[(df_columns['table']=='Manufacturing plan')&
+            (~df_columns['mandatory_column'].isna())]['std_name'].to_list()
+    df_plan_old=df_plan_old[plan_cols]
+    df_plan_old['date']=df_plan_old['date'].dt.strftime('%B, %#d, %Y')
+    st.session_state.df_plan_old=df_plan_old
+    df_plan_old=rename_columns(df_plan_old,df_col_rel=st.session_state.df_col_rel,table_to='Manufacturing plan')    
     path_plan=st.session_state.output_paths['path_plan']
     df_plan_old.to_excel(path_plan,sheet_name='Manufacturing plan',index=False)
-    st.session_state.df_plan_old=df_plan_old
+    os.startfile(path_plan)
     st.info("Plan creado")
 
 
 def generate_reports():
+    df_columns=st.session_state.df_columns
+    df_col_rel=st.session_state.df_col_rel
     df_plan_old=st.session_state.df_plan_old.copy()
     machines=df_plan_old['machine'].drop_duplicates().tolist()
     group_cols=['date']
+    df_plan_old=rename_columns(df_plan_old,df_col_rel=df_col_rel,table_to='Machine Report')
+    plan_report_cols=df_columns[(df_columns['table']=='Machine Report')&
+        (~df_columns['mandatory_column'].isna())]['column_name'].to_list()
+    numeric_cols=df_columns[(df_columns['table']=='Machine Report')&
+        (df_columns['data_type']=='sub_total')]['column_name'].to_list()
+    machine_col=df_columns[(df_columns['table']=='Machine Report')&
+        (df_columns['std_name']=='machine')]['column_name'].to_list()[0]    
+    df_plan_old=df_plan_old[plan_report_cols]
+    # Identify numeric columns for subtotals
+
     for machine in machines:
-        df=df_plan_old[df_plan_old['machine']==machine].copy()
+        df=df_plan_old[df_plan_old[machine_col]==machine].copy()
+        if len(df)==0:
+            continue
         wb = Workbook()
         ws = wb.active
         ws.title = 'Report'
@@ -394,9 +462,6 @@ def generate_reports():
 
         current_row = 2
         black_fill = PatternFill(start_color='000000', end_color='000000', fill_type='solid')
-
-        # Identify numeric columns for subtotals
-        numeric_cols = ['pzas_x_hacer','time_used']
 
         groups = df.groupby(group_cols)
         for date, group in groups:
@@ -472,18 +537,18 @@ st.title("Plan de manufactura")
 
 state = load_state_pickle()
 
-st.header("Parámetros de turno y routing")
-config_items = [
-    ("time_first_shift", "Time First Shift"),
-    ("time_second_shift", "Time Second Shift"),
-    ("routing_name", "Routing Name"),
-]
-for key, label in config_items:
-    value = st.text_input(label, value=state.get(key, ""), key=key)
-    if value != state.get(key, ""):
-        state[key] = value
-        save_state_pickle(state)
-        st.rerun()
+# st.header("Parámetros de turno y routing")
+# config_items = [
+#     ("time_first_shift", "Time First Shift"),
+#     ("time_second_shift", "Time Second Shift"),
+#     ("routing_name", "Routing Name"),
+# ]
+# for key, label in config_items:
+#     value = st.text_input(label, value=state.get(key, ""), key=key)
+#     if value != state.get(key, ""):
+#         state[key] = value
+#         save_state_pickle(state)
+#         st.rerun()
 
 st.header("Seleccionar carpeta de trabajo")
 if st.button("Seleccionar carpeta", key="select_folder"):
@@ -509,7 +574,8 @@ st.header("Seleccion de archivos")
 file_selectors = [
     ("master_file", "Master Doblado"),
     ("order_file", "Lista de Ordenes"),
-    ("routing_file", "Routing")
+    ("routing_file", "Routing"),
+    ("available_hours", "Horas disponibles")
 ]
 for selector_key, display_label in file_selectors:
     manage_file_selector(selector_key, display_label, state)
