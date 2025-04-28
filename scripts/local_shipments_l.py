@@ -1162,7 +1162,6 @@ def update_edi():
     path_ship_elp_new=get_path(state,'InventoryStageBakup')
     close_xl_if_open(path_ship_elp_new)
     st.session_state.path_tracker=get_path(state,'Tracker')
-    close_xl_if_open(st.session_state.path_tracker)
     if 'df_prices' not in st.session_state:
         st.info('Lista de precios no disponible')
     path_ship_elp=get_path(state,'ELP Master')
