@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V36. 2025-04-27
+    - Actualizacion de precios desde folder
 - V35. 2025-04-24
     - Manejo de columnas OH Max por posicion
     - Filtros del OH Max
@@ -507,19 +509,22 @@ def set_col_rel(output_paths):
 # Excel Utility Functions
 # ----------------------------------------------------------------
 def load_excel_with_header_key(file_path, sheet_name=0, key_text='', dtype=None, **kwargs):
-    df = read_excel(file_path,sheet_name=sheet_name, keep_default_na=False,dtype=dtype)
+    df = read_excel(file_path, sheet_name=sheet_name, keep_default_na=False, dtype=dtype)
     header_row = None
-    for col in df.columns:
-        for i, cell in df[col].items():
-            if pd.notna(cell) and key_text in str(cell):
-                header_row = i
+    if key_text in df.columns:
+        header_row = 0
+    else:
+        for col in df.columns:
+            for i, cell in df[col].items():
+                if pd.notna(cell) and key_text in str(cell):
+                    header_row = i
+                    break
+            if header_row is not None:
                 break
-        if header_row is not None:
-            break
-    if header_row is None:
-        raise ValueError(f"Key text '{key_text}' not found in the sheet.")
-    df.columns = df.iloc[header_row]
-    df = df.iloc[header_row + 1:].reset_index(drop=True)
+        if header_row is None:
+            st.error(f"Key text '{key_text}' not found in the sheet.")
+        df.columns = df.iloc[header_row]
+        df = df.iloc[header_row + 1:].reset_index(drop=True)
     return df
 
 def duplicate_df_cols(df, suffix, cols):
@@ -1158,9 +1163,8 @@ def update_edi():
     close_xl_if_open(path_ship_elp_new)
     st.session_state.path_tracker=get_path(state,'Tracker')
     close_xl_if_open(st.session_state.path_tracker)
-    st.session_state.path_prices=get_path(state,'Prices')
-    if st.session_state.path_prices!='Not selected':
-        close_xl_if_open(st.session_state.path_prices)
+    if 'df_prices' not in st.session_state:
+        st.info('Lista de precios no disponible')
     path_ship_elp=get_path(state,'ELP Master')
     close_xl_if_open(path_ship_elp)
     path_oor_old=get_path(state,'OOR')
@@ -1486,13 +1490,15 @@ def update_oor():
     df_edi_combined['WO'].fillna('',inplace=True)
 
     # Get prices if selected
-    df_prices=pd.DataFrame()
-    if st.session_state.path_prices!='Not selected':
-        msg_oor_update.info("Integrando precios")
-        df_prices=read_excel(st.session_state.path_prices)
-        df_prices=rename_columns(df_prices,df_col_rel,table_from='Prices',table_to='OOR Report',sheet_to='OOR')
-        df_prices=df_prices[['ProductServiceID','Price']]
-        df_prices.drop_duplicates(['ProductServiceID'],keep='last',inplace=True)
+
+    #     st.stop()
+    # df_prices=pd.DataFrame()
+    # if st.session_state.path_prices!='Not selected':
+    #     msg_oor_update.info("Integrando precios")
+    #     df_prices=read_excel(st.session_state.path_prices)
+    #     df_prices=rename_columns(df_prices,df_col_rel,table_from='Prices',table_to='OOR Report',sheet_to='OOR')
+    #     df_prices=df_prices[['ProductServiceID','Price']]
+    #     df_prices.drop_duplicates(['ProductServiceID'],keep='last',inplace=True)
 
     # ### Actualizar OOR con datos nuevos
 
@@ -1571,11 +1577,15 @@ def update_oor():
     df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received_new']
     df_oor_old.drop(columns='EDI Received_new',inplace=True)
     dict_oor_old['df']=df_oor_old
-    
-    if len(df_prices)>0:
+
+    if 'df_prices' not in st.session_state:
+        msg_oor_update.info('Lista de precios no disponible')    
+    else:
         # if 'Price' in df_oor_old.columns:
         #     df_oor_old.drop(columns=['Price'],inplace=True)
         msg_oor_update.info("Integrando precios")
+        df_prices=st.session_state.df_prices
+        df_prices=rename_columns(df_prices,df_col_rel=df_col_rel,table_to='OOR Report',sheet_to='OOR')
         df_oor_old=df_oor_old.merge(df_prices,how='left',on=['ProductServiceID'])
 
     msg_oor_update.info("Actualizando oor")
@@ -2491,6 +2501,34 @@ def explorar_outlook():
     st.success("Proceso de integración completado.")
 
 # ----------------------------------------------------------------
+# Function: Cargar lista de precios para usar en OOR
+# ----------------------------------------------------------------
+def load_price_list():
+    st.session_state.prices_msg=st.info('Cargando listas')
+    folder_prices=state.get('folder_prices', "Not selected")
+    if folder_prices=="Not selected":
+        st.info(f'Favor de seleccionar los folder con listas de precios')
+        raise SystemExit()
+    prices_files_lst=os.listdir(folder_prices)
+    df_prices=pd.DataFrame()
+    for file in prices_files_lst:
+        if '~' in file:
+            continue
+        filepath=os.path.join(folder_prices,file)
+        close_xl_if_open(filepath)
+        if 'ACCESSORIES' in file:
+            df=load_excel_with_header_key(filepath,key_text='Site')
+            df=rename_columns(df,df_col_rel=df_col_rel,table_from='Price accessories')
+        else:
+            df=load_excel_with_header_key(filepath,key_text='Final SKU')
+            df=rename_columns(df,df_col_rel=df_col_rel,table_from='Prices fixtures')
+        df=df[['modelo','price']]
+        df_prices=pd.concat([df_prices,df])
+    df_prices.drop_duplicates(['modelo'],keep='last',inplace=True)
+    df_prices.reset_index(inplace=True,drop=True)    
+    st.session_state.df_prices=df_prices
+
+# ----------------------------------------------------------------
 # Streamlit UI
 # ----------------------------------------------------------------
 st.session_state.running=False
@@ -2555,11 +2593,11 @@ if fecha_freeze_input != state.get("fecha_freeze"):
 
 # Selección de archivos mediante manage_file_selector
 st.header("Seleccionar archivos")
-for file_key in ['OOR', 'Tracker', 'ELP Master', 'Shipment transactions', 'InventoryStageBakup', 'OH Max', 'Prices', 'Gating Parts']:
+for file_key in ['OOR', 'Tracker', 'ELP Master', 'Shipment transactions', 'InventoryStageBakup', 'OH Max', 'Gating Parts']:
     manage_file_selector(file_key, file_key, state)
 
 # Selección de carpeta de yield reports
-st.header("Seleccionar carpeta de Yield reports")
+st.header("Seleccionar carpeta de Yield reports y Precios")
 if st.button("Seleccionar carpeta", key="select_yield"):
     folder = select_directory(initialdir=state.get("folder_yield", os.getcwd()))
     if folder:
@@ -2571,6 +2609,17 @@ if state.get("folder_yield"):
 else:
     st.info("No se ha seleccionado carpeta de Yield reports.")
 
+if st.button("Seleccionar carpeta", key="select_prices"):
+    folder = select_directory(initialdir=state.get("folder_prices", os.getcwd()))
+    if folder:
+        state["folder_prices"] = folder
+        save_state_pickle(state)
+        st.rerun()
+if state.get("folder_prices"):
+    st.success(f"Carpeta de Precios reports: {state['folder_prices']}")
+else:
+    st.info("No se ha seleccionado carpeta de precios.")
+
 st.header("Procesos")
 
 if st.button("Explorar Outlook", key="explorar_outlook"):
@@ -2580,13 +2629,16 @@ if st.button("Explorar Outlook", key="explorar_outlook"):
 if "explorar_msg" in st.session_state:
     st.write(st.session_state.explorar_msg)
 
+if st.button("Cargar precios", key="load_prices"):
+    load_price_list()
+    st.session_state.prices_msg.info("Se cargaron las listas de precios.")
 
 if st.button("Actualizar EDI Master", key="update_edi"):
     update_edi()
 if "edi_msg" in st.session_state:
     st.write(st.session_state.reportes_msg)
 
-if st.button("Generar Reportes", key="generar_reportes"):
+if st.button("Actualizar OOR", key="generar_reportes"):
     update_oor()
 if "reportes_msg" in st.session_state:
     st.write(st.session_state.reportes_msg)

@@ -134,7 +134,28 @@ save_df(df_korrus_list_new,filepath=output_paths['path_korrus_list'],sheet_name=
 save_df(df_korrus_data_new,filepath=output_paths['path_korrus_data'],sheet_name='Korrus Data',index=False)
 st.success("Proceso de integración completado.")
 
-
+#%% Leer lista de precios
+folder_prices=state.get('folder_prices', "Not selected")
+if folder_prices=="Not selected":
+    st.info(f'Favor de seleccionar los folder con listas de precios')
+    raise SystemExit()
+prices_files_lst=os.listdir(folder_prices)
+df_prices=pd.DataFrame()
+for file in prices_files_lst:
+    if '~' in file:
+        continue
+    filepath=os.path.join(folder_prices,file)
+    close_xl_if_open(filepath)
+    if 'ACCESSORIES' in file:
+        df=load_excel_with_header_key(filepath,key_text='Site')
+        df=rename_columns(df,df_col_rel=df_col_rel,table_from='Price accessories')
+    else:
+        df=load_excel_with_header_key(filepath,key_text='Final SKU')
+        df=rename_columns(df,df_col_rel=df_col_rel,table_from='Prices fixtures')
+    df=df[['modelo','price']]
+    df_prices=pd.concat([df_prices,df])
+df_prices.drop_duplicates(['modelo'],inplace=True)
+df_prices.reset_index(inplace=True,drop=True)
 
 #%%
 # %% [markdown]
@@ -482,13 +503,13 @@ df_edi_combined=set_hyperlink(df_edi_combined,sheet_name='Shipped to Elp',col_na
 df_edi_combined['WO'].fillna('',inplace=True)
 #%%
 # Get prices if selected
-path_prices=get_path(state,'Prices')
-df_prices=pd.DataFrame()
-if path_prices!='Not selected':
-    df_prices=read_excel(path_prices)
-    df_prices=rename_columns(df_prices,df_col_rel,table_from='Prices',table_to='OOR Report',sheet_to='OOR')
-    df_prices=df_prices[['ProductServiceID','Price']]
-    df_prices.drop_duplicates(['ProductServiceID'],keep='last',inplace=True)
+# path_prices=get_path(state,'Prices')
+# df_prices=pd.DataFrame()
+# if path_prices!='Not selected':
+#     df_prices=read_excel(path_prices)
+#     df_prices=rename_columns(df_prices,df_col_rel,table_from='Prices',table_to='OOR Report',sheet_to='OOR')
+#     df_prices=df_prices[['ProductServiceID','Price']]
+#     df_prices.drop_duplicates(['ProductServiceID'],keep='last',inplace=True)
 
 #%%
 # ### Actualizar OOR con datos nuevos
@@ -572,12 +593,17 @@ df_oor_old=df_oor_old.merge(df_edi_rec_dates,how='left',on=key_cols,suffixes=(''
 df_oor_old.loc[df_oor_old['EDI Received'].isna(),'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received'].isna(),'EDI Received_new']
 df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received_new']
 df_oor_old.drop(columns='EDI Received_new',inplace=True)
+
+
 #%%
-#%%
-if len(df_prices)>0:
-    if 'Price' in df_oor_old.columns:
-        df_oor_old.drop(columns=['Price'],inplace=True)
-    df_oor_old.merge(df_prices,how='left',on=['ProductServiceID'])
+if 'df_prices' not in st.session_state:
+    print('Lista de precios no disponible')    
+else:
+    # if 'Price' in df_oor_old.columns:
+    #     df_oor_old.drop(columns=['Price'],inplace=True)
+    print("Integrando precios")
+    df_prices=st.session_state.df_prices
+    df_prices=rename_columns(df_prices,df_col_rel=df_col_rel,table_to='OOR Report',sheet_to='OOR')
     df_oor_old=df_oor_old.merge(df_prices,how='left',on=['ProductServiceID'])
 #%%
 df_oor_old
