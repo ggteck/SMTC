@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V37. 2025-04-28
+    - Correccion en mayusculas del modelo, reorganizacion de botones y fechas
 - V36. 2025-04-27
     - Actualizacion de precios desde folder
 - V35. 2025-04-24
@@ -385,6 +387,8 @@ def format_dates(df, date_cols=[],type='iso'):
             continue
         if type=='iso':
             df[col]=pd.to_datetime(df[col], errors='coerce').dt.strftime('%Y-%m-%d')
+        elif type=='slash':
+            df[col]=pd.to_datetime(df[col], errors='coerce').dt.strftime('%m/%d/%Y')
         else:
             df[col]=pd.to_datetime(df[col], errors='coerce')
     return df
@@ -1216,13 +1220,13 @@ def update_edi():
         edi_keys=['PO','LineNumber','ProductService ID','AssignedDropZone']
         df_edi=append_df_to_df(df_new=df_korrus_data_new,df_old=df_edi,table='EDI Master',keys=edi_keys)
 
-
     # Shipment transactions, lo embarcado al cliente
     if path_ship_cust_new!='Not selected':
         df_ship_cust_new=load_excel_with_header_key(path_ship_cust_new,sheet_name='Embarques from ELP',key_text='Fecha de Embarque')
         df_ship_cust_new=rename_columns(df_ship_cust_new,df_col_rel=df_col_rel,table_from='ELP Master',sheet_from='Embarques from ELP')
         df_ship_cust_new=df_ship_cust_new[df_ship_cust_new['is_shipped'].str.upper().str.contains('YES')]
         df_ship_cust_new=df_ship_cust_new[~df_ship_cust_new['po'].isna()]
+        df_ship_cust_new['modelo']=df_ship_cust_new['modelo'].str.upper()
         save_df(df_ship_cust_new,output_paths['path_ship_cust'],sheet_name='Shipped to Cust',index=False)
         
     # InventoryStage, lo que se embarco a ELP 
@@ -1296,17 +1300,17 @@ def update_oor():
     # - Hay tres reportes EDI Master, Shipped to Cust, Shipped to ELP
     # - Si hay archivos seleccionados se integran a estos reportes
     msg_oor_update=st.empty()
-    if not 'df_edi' in st.session_state:
-        msg_oor_update.error("Actualizar edi al menos una vez")
-        st.stop()
     path_oor_old=get_path(state,'OOR')
     close_xl_if_open(path_oor_old)
-    df_edi=st.session_state.df_edi.copy()
-    df_ship_elp=st.session_state.df_ship_elp.copy()
-
+    path_ship_elp=get_path(state,'ELP Master')
+    close_xl_if_open(path_ship_elp)
+    df_edi=read_excel(path_ship_elp,sheet_name='EDI Master')
+    df_ship_elp=read_excel(path_ship_elp,sheet_name='Shipment to ELP')
+    
     msg_oor_update=st.info("Generando reportes")
     # Reporte de work orders, que se encuentra en proceso de produccion
     msg_oor_update.info("Integrando tracker")
+    st.session_state.path_tracker=get_path(state,'Tracker')
     xls = pd.ExcelFile(st.session_state.path_tracker)
     wo_sheets=[sheet for sheet in xls.sheet_names if (('Plan de produccion' in sheet) or ('TERMINADAS' in sheet))]
     df_wo=pd.DataFrame()
@@ -1321,7 +1325,7 @@ def update_oor():
     df_wo=move_columns_to_front(df_wo,['po','modelo','wo','quantity','START DATE', 'FINISH DATE', 'reprogrammed_cuu','estimated_move_date_cuu'])
     #% Edi
     df_edi=rename_columns(df_edi,df_col_rel,table_from='ELP Master',sheet_from='EDI Master')
-
+    df_edi['modelo']=df_edi['modelo'].str.upper()
 
     # Procesar envios al cliente eliminando cantidades negativas. Se conserva la fecha mas nueva de envio.
 
@@ -1345,9 +1349,6 @@ def update_oor():
     df_ship_elp['po']=df_ship_elp['po'].str.strip()
     df_ship_elp['modelo']=df_ship_elp['modelo'].str.strip()
     df_ship_elp['quantity'].fillna(0,inplace=True)
-    # df_ship_elp_grp=df_ship_elp.groupby(['po','modelo','shipment_date_elp']).sum('quantity').reset_index()
-    # df_ship_elp_grp=df_ship_elp_grp[['po','modelo','quantity','shipment_date_elp']]
-
 
     # Merge EDI con work orders y embarques
 
@@ -1398,6 +1399,7 @@ def update_oor():
 
 
     df_assigned_shp_elp=assignments_shp_elp['df_assignments']
+    df_assigned_shp_elp['shipment_date_elp']=pd.to_datetime(df_assigned_shp_elp['shipment_date_elp'],errors='coerce').dt.strftime('%m/%d/%Y')
     df_edi_combined=merge_additional_fields(df_assigned_shp_elp,
                             df_edi_combined,
                             fields=['po','modelo','LineNumber','shipment_date_elp'],
@@ -1466,8 +1468,8 @@ def update_oor():
     df_ship_elp.reset_index(drop=True,inplace=True)
     df_ship_elp.loc[df_ship_elp['dz']=='','dz']='NULL'
     df_ship_elp['dz'].fillna('NULL',inplace=True)
-    df_ship_elp=format_dates(df_ship_elp,['ShipmentDate'])
-    df_ship_elp=move_columns_to_front(df_ship_elp,['po','modelo','ShipmentDate','Quantity'])
+    df_ship_elp=format_dates(df_ship_elp,['shipment_date_elp'])
+    df_ship_elp=move_columns_to_front(df_ship_elp,['po','modelo','shipment_date_elp','Quantity'])
     # Get index for hyperlinks
 
     df_wo.reset_index(inplace=True,drop=True)
@@ -1487,17 +1489,6 @@ def update_oor():
     df_edi_combined=set_hyperlink(df_edi_combined,sheet_name='Shipped to Elp',col_name='Shipped to Elp',idx_name='idx_elp',typ='int')
 
     df_edi_combined['WO'].fillna('',inplace=True)
-
-    # Get prices if selected
-
-    #     st.stop()
-    # df_prices=pd.DataFrame()
-    # if st.session_state.path_prices!='Not selected':
-    #     msg_oor_update.info("Integrando precios")
-    #     df_prices=read_excel(st.session_state.path_prices)
-    #     df_prices=rename_columns(df_prices,df_col_rel,table_from='Prices',table_to='OOR Report',sheet_to='OOR')
-    #     df_prices=df_prices[['ProductServiceID','Price']]
-    #     df_prices.drop_duplicates(['ProductServiceID'],keep='last',inplace=True)
 
     # ### Actualizar OOR con datos nuevos
 
@@ -2116,6 +2107,7 @@ def assign_quantities(df_pos, df_to_assign, additional_fields=[]):
 def merge_additional_fields(df=pd.DataFrame(),df_edi=pd.DataFrame(),fields=[],sort_fields=[],key=[]):
     if len(df)==0:
         df=pd.DataFrame(columns=fields)
+    
     df=df.sort_values(sort_fields)
     df.drop_duplicates(key,keep='last',inplace=True)
     df_edi=df_edi.merge(df[fields],how='left',on=key)
@@ -2573,26 +2565,9 @@ for label, folder in folder_options:
 st.write("Carpeta seleccionada:", st.session_state.mail_folder.Name)
 # pythoncom.CoUninitialize()
 
-# Selección y estado de las fechas con gestión de estado
-st.header("Fechas")
-fecha_mail_input = st.date_input("Fecha mail", value=state.get("fecha_mail") or (date.today() - timedelta(days=1)))
-if fecha_mail_input != state.get("fecha_mail"):
-    state["fecha_mail"] = fecha_mail_input
-    save_state_pickle(state)
-
-fecha_shipments_input = st.date_input("ELP Shipments", value=date.today())
-if fecha_shipments_input != state.get("fecha_shipments_elp"):
-    state["fecha_shipments_elp"] = fecha_shipments_input
-    save_state_pickle(state)
-
-fecha_freeze_input = st.date_input("Fecha Inicial de Actualización", value=state.get("fecha_freeze") or date.today())
-if fecha_freeze_input != state.get("fecha_freeze"):
-    state["fecha_freeze"] = fecha_freeze_input
-    save_state_pickle(state)
-
 # Selección de archivos mediante manage_file_selector
 st.header("Seleccionar archivos")
-for file_key in ['OOR', 'Tracker', 'ELP Master', 'Shipment transactions', 'InventoryStageBakup', 'OH Max', 'Gating Parts']:
+for file_key in ['OOR', 'Tracker', 'EDI Master', 'ELP Master log', 'InventoryStageBakup', 'OH Max', 'Gating Parts']:
     manage_file_selector(file_key, file_key, state)
 
 # Selección de carpeta de yield reports
@@ -2619,11 +2594,27 @@ if state.get("folder_prices"):
 else:
     st.info("No se ha seleccionado carpeta de precios.")
 
+# Selección y estado de las fechas con gestión de estado
+# st.header("Fechas")
+
+fecha_freeze_input = st.date_input("PODate Inicial de Actualización", value=state.get("fecha_freeze") or date.today())
+if fecha_freeze_input != state.get("fecha_freeze"):
+    state["fecha_freeze"] = fecha_freeze_input
+    save_state_pickle(state)
+    
 st.header("Procesos")
 
-if st.button("Explorar Outlook", key="explorar_outlook"):
-    explorar_outlook()
-    st.session_state.explorar_msg = "Exploración completada."
+col1, col2 = st.columns([2, 1],gap="small")
+with col1:
+    if st.button("Explorar Outlook", key="explorar_outlook"):
+        explorar_outlook()
+        st.session_state.explorar_msg = "Exploración completada."
+with col2:
+    fecha_mail_input = st.date_input("Fecha mail", value=state.get("fecha_mail") or (date.today() - timedelta(days=1)))
+    if fecha_mail_input != state.get("fecha_mail"):
+        state["fecha_mail"] = fecha_mail_input
+        save_state_pickle(state)
+st.divider()
 
 if "explorar_msg" in st.session_state:
     st.write(st.session_state.explorar_msg)
@@ -2631,9 +2622,20 @@ if "explorar_msg" in st.session_state:
 if st.button("Cargar precios", key="load_prices"):
     load_price_list()
     st.session_state.prices_msg.info("Se cargaron las listas de precios.")
-
-if st.button("Actualizar EDI Master", key="update_edi"):
-    update_edi()
+st.divider()
+col1, col2 = st.columns([2, 1],gap="small")
+with col1:
+    if st.button("Actualizar EDI Master", key="update_edi"):
+        update_edi()
+with col2:
+    fecha_shipments_input = st.date_input(
+        "Fecha para InventoryStageBackup:", 
+        value=state.get("fecha_shipments_elp", date.today())
+    )
+    if fecha_shipments_input != state.get("fecha_shipments_elp"):
+        state["fecha_shipments_elp"] = fecha_shipments_input
+        save_state_pickle(state)
+st.divider()
 if "edi_msg" in st.session_state:
     st.write(st.session_state.reportes_msg)
 

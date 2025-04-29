@@ -224,7 +224,7 @@ if (len(df_korrus_data_new)>0):
     edi_keys=['PO','LineNumber','ProductService ID','AssignedDropZone']
     df_edi=append_df_to_df(df_new=df_korrus_data_new,df_old=df_edi,table='EDI Master',keys=edi_keys)
 
-
+#%%
 # Shipment transactions, lo embarcado al cliente
 path_ship_cust_new=get_path(state,'Shipment transactions')
 if path_ship_cust_new!='Not selected':
@@ -232,7 +232,9 @@ if path_ship_cust_new!='Not selected':
     df_ship_cust_new=rename_columns(df_ship_cust_new,df_col_rel=df_col_rel,table_from='ELP Master',sheet_from='Embarques from ELP')
     df_ship_cust_new=df_ship_cust_new[df_ship_cust_new['is_shipped'].str.upper().str.contains('YES')]
     df_ship_cust_new=df_ship_cust_new[~df_ship_cust_new['po'].isna()]
+    df_ship_cust_new['modelo']=df_ship_cust_new['modelo'].str.upper()
     save_df(df_ship_cust_new,output_paths['path_ship_cust'],sheet_name='Shipped to Cust',index=False)
+#%%
 #%%
 # InventoryStage, lo que se embarco a ELP 
 path_ship_elp_new=get_path(state,'InventoryStageBakup')
@@ -302,11 +304,18 @@ date_cols=df_columns[(df_columns['sheet']=='Shipment to ELP')&(df_columns['data_
 wb_elp=format_xl_dates(wb_elp,sheet_name='Shipment to ELP',date_columns=date_cols)
 #%%
 save_wb(wb_elp,path_ship_elp)
+#%% Reload from files
+path_oor_old=get_path(state,'OOR')
+close_xl_if_open(path_oor_old)
+path_ship_elp=get_path(state,'ELP Master')
+close_xl_if_open(path_ship_elp)
+df_edi=read_excel(path_ship_elp,sheet_name='EDI Master')
 
+df_ship_elp=read_excel(path_ship_elp,sheet_name='Shipment to ELP')
+df_ship_elp['CUU ship Date']=pd.to_datetime(df_ship_elp['CUU ship Date'],errors='coerce').dt.strftime('%m/%d/%Y')
 #%%
 # Reporte de work orders, que se encuentra en proceso de produccion
 path_tracker=get_path(state,'Tracker')
-#%%
 xls = pd.ExcelFile(path_tracker)
 wo_sheets=[sheet for sheet in xls.sheet_names if (('Plan de produccion' in sheet) or ('TERMINADAS' in sheet))]
 df_wo=pd.DataFrame()
@@ -319,8 +328,6 @@ df_wo['modelo']=df_wo['modelo'].str.upper()
 df_wo=format_dates(df_wo,['Date','START DATE', 'FINISH DATE', 'reprogrammed_cuu','SHIP DATE'])
 df_wo.rename(columns={"wo_qty":"quantity"},inplace=True)
 df_wo=move_columns_to_front(df_wo,['po','modelo','wo','quantity','START DATE', 'FINISH DATE', 'reprogrammed_cuu','estimated_move_date_cuu'])
-#%%
-df_wo.shape
 #%%
 df_wo_wb=pd.read_excel(path_tracker,sheet_name=None)
 df_wo=pd.DataFrame()
@@ -337,7 +344,7 @@ df_wo=move_columns_to_front(df_wo,['po','modelo','wo','quantity','START DATE', '
 #%%
 #% Edi
 df_edi=rename_columns(df_edi,df_col_rel,table_from='ELP Master',sheet_from='EDI Master')
-
+df_edi['modelo']=df_edi['modelo'].str.upper()
 #%%
 # Procesar envios al cliente eliminando cantidades negativas. Se conserva la fecha mas nueva de envio.
 if not os.path.exists(output_paths['path_ship_cust']):
@@ -352,8 +359,7 @@ df_ship_cust_dates=df_ship_cust.sort_values(['po','modelo','shipment_date_cust']
 df_ship_cust_dates.drop('quantity',axis=1,inplace=True)
 df_ship_cust_dates=df_ship_cust_dates.merge(df_ship_cust_grp,on=['po','modelo'])
 df_ship_cust_dates=df_ship_cust_dates[['po','modelo','quantity','shipment_date_cust']]
-
-
+#%%
 # Envios a ELP
 df_ship_elp=rename_columns(df_ship_elp,df_col_rel,table_from='ELP Master',sheet_from='Shipment to ELP')
 df_ship_elp['modelo']=df_ship_elp['modelo'].str.upper()
@@ -375,6 +381,7 @@ df_ship_cust_dates=df_ship_cust_dates.merge(df_edi_po_dates,how='left',on=['po',
 df_ship_cust_dates=df_ship_cust_dates[df_ship_cust_dates['po_date']>pd.to_datetime(state["fecha_freeze"])]
 df_ship_elp=df_ship_elp.merge(df_edi_po_dates,how='left',on=['po','modelo'])
 df_ship_elp=df_ship_elp[df_ship_elp['po_date']>pd.to_datetime(state["fecha_freeze"])]
+
 #%%
 assignments_wo=assign_quantities(df_pos=df_edi,df_to_assign=df_wo,additional_fields=['WO','START DATE','FINISH DATE','reprogrammed_cuu','estimated_move_date_cuu'])
 df_edi_combined=assignments_wo['df_pos']
@@ -385,8 +392,7 @@ df_edi_combined.rename({'Assigned':'Shipped to Cust'},axis=1,inplace=True)
 assignments_shp_elp=assign_quantities(df_pos=df_edi_combined,df_to_assign=df_ship_elp,additional_fields=['shipment_date_elp'])
 df_edi_combined=assignments_shp_elp['df_pos']
 df_edi_combined.rename({'Assigned':'Shipped to Elp'},axis=1,inplace=True)
-#%%
-df_edi_combined
+
 #%%
 # ### OOR Report
 
@@ -465,7 +471,7 @@ if not 'edi_received' in df_edi_combined.columns:
     df_edi_combined['edi_received']=''
 
 #%%
-
+#%%
 # Read customer shipments and shipments to elp
 df_ship_cust=read_excel(output_paths['path_ship_cust'])
 df_ship_cust=rename_columns(df_ship_cust,df_col_rel,table_from='Shipment transactions')
@@ -480,8 +486,10 @@ df_ship_elp.sort_values(['po','modelo','shipment_date_elp'],inplace=True)
 df_ship_elp.reset_index(drop=True,inplace=True)
 df_ship_elp.loc[df_ship_elp['dz']=='','dz']='NULL'
 df_ship_elp['dz'].fillna('NULL',inplace=True)
-df_ship_elp=format_dates(df_ship_elp,['ShipmentDate'])
-df_ship_elp=move_columns_to_front(df_ship_elp,['po','modelo','ShipmentDate','Quantity'])
+df_ship_elp=format_dates(df_ship_elp,['df_ship_elp'],type='slash')
+df_ship_elp=move_columns_to_front(df_ship_elp,['po','modelo','df_ship_elp','Quantity'])
+#%%
+df_ship_elp
 # Get index for hyperlinks
 #%%%
 df_wo.reset_index(inplace=True,drop=True)
@@ -501,6 +509,8 @@ df_edi_combined=set_hyperlink(df_edi_combined,sheet_name='Shipped to Cust',col_n
 df_edi_combined=set_hyperlink(df_edi_combined,sheet_name='Shipped to Elp',col_name='Shipped to Elp',idx_name='idx_elp',typ='int')
 
 df_edi_combined['WO'].fillna('',inplace=True)
+#%% 
+df_edi_combined[df_edi_combined['shipment_date_elp']=='04/25/2025']
 #%%
 # Get prices if selected
 # path_prices=get_path(state,'Prices')
@@ -513,7 +523,6 @@ df_edi_combined['WO'].fillna('',inplace=True)
 
 #%%
 # ### Actualizar OOR con datos nuevos
-
 
 # Actualizar OOR
 df_oor=rename_columns(df_edi_combined,df_col_rel,table_from='EDI Combined',table_to='OOR Report',sheet_to='OOR')
