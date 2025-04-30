@@ -1,4 +1,6 @@
 # Manufacturing plan
+# - V7. 2025-04-29
+#     - Se da formato a primer y segundo turno, se guarda el ancho de las columnas del primer archivo de reporte y se aplica a todos los reportes
 # - V6. 2025-04-27
 #     - Se agrega precio, horas por fecha, 
 # - V5. 2025-04-27
@@ -24,6 +26,7 @@ from openpyxl.styles import PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 import win32com.client
 from pandas.tseries.offsets import BDay
+from openpyxl import load_workbook 
 
 
 # =============================================================================
@@ -92,6 +95,110 @@ def load_excel_with_header_key(file_path, sheet_name=0, key_text='', dtype=None,
         df = df.iloc[header_row + 1:].reset_index(drop=True)
     return df
 
+def find_cell_by_text(ws, text):
+    """
+    Find the cell containing the specified date in the worksheet.
+    
+    :param ws: The worksheet object from openpyxl
+    :param date_value: The date value to search for (datetime object or string)
+    :return: The cell address (e.g., 'B2') or None if not found
+    """
+    # for row in ws.iter_rows():
+    for row in ws[ws.calculate_dimension()]:
+        for cell in row:
+            if cell.value == text:
+                return cell.coordinate  # Return cell address (e.g., 'B2')
+    return None 
+
+def get_column_info(ws, col_name, raise_error=True):
+    """
+    Returns a dictionary with the column cell and the data range for the column.
+    """
+    col_cell=find_cell_by_text(ws, col_name)
+    if not col_cell:
+        if not raise_error:
+            return False
+        st.error(f"Column '{col_name}' not found in the sheet.")
+        st.stop()
+    col_cell=ws[col_cell]
+    last_cell=ws[ws.calculate_dimension()][-1][-1].coordinate
+    data_range=ws[col_cell.offset(1,0).coordinate:ws.cell(ws[last_cell].row,col_cell.offset(1,0).column).coordinate]
+    data_range_list=[cell[0] for cell in data_range]
+    return {'data_range':data_range_list,
+            'col_cell':col_cell}
+
+def get_col_sizes(wb):
+    """
+    Obtains a dictionary with the column sizes of each sheet in a workbook
+    """
+    col_sizes={}
+    for sheet in wb.sheetnames:
+        col_sizes[sheet]=wb[sheet].column_dimensions
+    return col_sizes
+
+def apply_col_sizes(wb,col_sizes):
+    """
+    Applies the column sizes obtained by function get_col_sizes
+    """
+    for sheet in col_sizes.keys():
+        if sheet not in wb.sheetnames:
+            continue
+        ws=wb[sheet]
+        for column_letter in col_sizes[sheet].keys():
+            if column_letter==0:
+                continue
+            ws.column_dimensions[column_letter].width=col_sizes[sheet][column_letter].width
+    return wb
+
+def get_cell_properties(cell):
+    properties = {}
+    fill = cell.fill
+    properties["background_color"] = fill
+    properties["font"]=cell.font
+    properties["alignment"] = cell.alignment
+    return properties
+
+def format_cell(cell,properties):
+    "Apply properties based on the dict of prooperties"
+    cell.fill=copy(properties['background_color'])
+    cell.font = copy(properties["font"])
+    cell.alignment = copy(properties["alignment"])
+
+def get_xl_formatting(table_name=None):
+    """
+    Returns the formatting for the excel file defined in columns and formatting.xlsx
+    return example
+    {'oor':
+    {
+        'columna':{
+            'head':{properties},
+            'data':{properties}
+        }
+    }
+    }
+    """
+    wb = load_workbook(st.session_state.output_paths['path_xl_format'])
+    ws = wb['column_format']
+    col_info=get_column_info(ws,'column_name')
+    cell_properties={}
+    for cell in col_info['data_range']:
+        head_properties=get_cell_properties(cell)
+        data_properties=get_cell_properties(cell.offset(0, 1))
+        if cell.offset(0, -1).value not in cell_properties:
+            cell_properties[cell.offset(0, -1).value]={} #Table name
+        if cell.value not in cell_properties[cell.offset(0, -1).value]:
+            cell_properties[cell.offset(0, -1).value][cell.value]= {} #Column name
+        cell_properties[cell.offset(0, -1).value][cell.value]['head_properties']=head_properties
+        cell_properties[cell.offset(0, -1).value][cell.value]['data_properties']=data_properties
+    ws = wb['special_format']
+    col_info=get_column_info(ws,'format_name')
+    cell_properties['special_format']={}
+    for cell in col_info['data_range']:
+        cell_properties['special_format'][cell.value]=get_cell_properties(cell)
+
+    if table_name:
+        cell_properties=cell_properties[table_name]
+    return cell_properties  
 # =============================================================================
 # Persistence / State Management
 # =============================================================================
@@ -466,17 +573,28 @@ def generate_reports():
     df_columns=st.session_state.df_columns
     df_col_rel=st.session_state.df_col_rel
     df_plan_old=st.session_state.df_plan_old.copy()
+    folder_output=st.session_state.folder_output
     machines=df_plan_old['machine'].drop_duplicates().tolist()
-    group_cols=['date']
     df_plan_old=rename_columns(df_plan_old,df_col_rel=df_col_rel,table_to='Machine Report')
     plan_report_cols=df_columns[(df_columns['table']=='Machine Report')&
         (~df_columns['mandatory_column'].isna())]['column_name'].to_list()
     numeric_cols=df_columns[(df_columns['table']=='Machine Report')&
         (df_columns['data_type']=='sub_total')]['column_name'].to_list()
     machine_col=df_columns[(df_columns['table']=='Machine Report')&
-        (df_columns['std_name']=='machine')]['column_name'].to_list()[0]    
+        (df_columns['std_name']=='machine')]['column_name'].to_list()[0]  
+    date_col=df_columns[(df_columns['table']=='Machine Report')&
+        (df_columns['std_name']=='date')]['column_name'].to_list()[0]  
+    group_cols=[date_col]
     df_plan_old=df_plan_old[plan_report_cols]
-    # Identify numeric columns for subtotals
+      
+    dict_formats=get_xl_formatting()
+    special_formats=dict_formats['special_format']
+    col_sizes=None
+    for file in os.listdir(folder_output):
+        if 'reporte de manufactura' in file:
+            wb=load_workbook(os.path.join(folder_output,file))
+            col_sizes=get_col_sizes(wb)
+            break
 
     for machine in machines:
         df=df_plan_old[df_plan_old[machine_col]==machine].copy()
@@ -501,7 +619,11 @@ def generate_reports():
             for _, row in group.iterrows():
                 for col_idx, col in enumerate(titles, start=1):
                     if col not in group_cols:
-                        ws.cell(row=current_row, column=col_idx, value=row[col])
+                        cell=ws.cell(row=current_row, column=col_idx, value=row[col])
+                        cell.value=row[col]
+                        if row[col] in special_formats.keys():
+                            format=special_formats[row[col]]
+                            format_cell(cell,format)
                 current_row += 1
             end_data_row = current_row - 1
 
@@ -523,6 +645,8 @@ def generate_reports():
             date_cell = ws.cell(row=start_row, column=1, value=date[0])
             date_cell.alignment = Alignment(textRotation=90, horizontal='center', vertical='center')
             date_cell.number_format = 'mmmm, d, yyyy'
+        if col_sizes:
+            wb=apply_col_sizes(wb,col_sizes)            
         base, ext = os.path.splitext(st.session_state.output_paths['path_report'])
         wb.save(f"{base} {machine}{ext}")
 
@@ -553,6 +677,7 @@ st.session_state.output_paths = set_paths(st.session_state.folder_output)
 st.session_state.col_rel = set_col_rel(st.session_state.output_paths)
 st.session_state.df_col_rel = st.session_state.col_rel['col_rel']
 st.session_state.df_columns = st.session_state.col_rel['columns']
+st.session_state.dict_formats=get_xl_formatting()
 
 st.set_page_config(page_title="Plan de manufactura", page_icon=":factory:")
 st.markdown(

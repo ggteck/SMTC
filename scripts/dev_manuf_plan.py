@@ -28,8 +28,6 @@ df_avail_hours['dia'].fillna('default',inplace=True)
 dict_avail_hours=df_avail_hours.set_index(['dia','maquina']).to_dict(orient='index')
 
 #%%
-state
-#%%
 path_master_doblado = file_selectors['master_file']
 df_master_doblado = load_excel_with_header_key(path_master_doblado, sheet_name='00. Formato para Master de WC', key_text='PN')
 df_master_doblado = rename_columns(df_master_doblado, df_col_rel, table_from='Master Doblado', sheet_from='00. Formato para Master de WC')
@@ -194,6 +192,7 @@ df_plan_old
 #%%
 df=df_plan_old
 #%%
+df_plan_old=rename_columns(df_plan_old,df_col_rel=st.session_state.df_col_rel,table_from='Manufacturing plan')    
 
 
 #%% Reportes
@@ -202,13 +201,19 @@ group_cols=['date']
 plan_report_cols=df_columns[(df_columns['table']=='Machine Report')&
     (~df_columns['mandatory_column'].isna())]['std_name'].to_list()
 df_plan_old=df_plan_old[plan_report_cols]
-
-#%%aqui voy
 machine_col=df_columns[(df_columns['table']=='Machine Report')&
     (df_columns['std_name']=='machine')]['column_name'].to_list()[0]
 #%%
 df_columns[(df_columns['table']=='Machine Report')]
 #%%
+dict_formats=get_xl_formatting()
+special_formats=dict_formats['special_format']
+col_sizes=None
+for file in os.listdir(folder_output):
+    if 'reporte de manufactura' in file:
+        wb=load_workbook(os.path.join(folder_output,file))
+        col_sizes=get_col_sizes(wb)
+        break
 
 for machine in machines:
     df=df_plan_old[df_plan_old['machine']==machine].copy()
@@ -236,7 +241,11 @@ for machine in machines:
         for _, row in group.iterrows():
             for col_idx, col in enumerate(titles, start=1):
                 if col not in group_cols:
-                    ws.cell(row=current_row, column=col_idx, value=row[col])
+                    cell=ws.cell(row=current_row, column=col_idx, value=row[col])
+                    cell.value=row[col]
+                    if row[col] in special_formats.keys():
+                        format=special_formats[row[col]]
+                        format_cell(cell,format)
             current_row += 1
         end_data_row = current_row - 1
 
@@ -258,7 +267,10 @@ for machine in machines:
         date_cell = ws.cell(row=start_row, column=1, value=date[0])
         date_cell.alignment = Alignment(textRotation=90, horizontal='center', vertical='center')
         date_cell.number_format = 'mmmm, d, yyyy'
+    if col_sizes:
+        wb=apply_col_sizes(wb,col_sizes)
     base, ext = os.path.splitext(output_paths['path_report'])
     wb.save(f"{base} {machine}{ext}")
 # %%
+
 
