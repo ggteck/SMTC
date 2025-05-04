@@ -16,7 +16,7 @@ output_paths = set_paths(folder_output)
 col_rel = set_col_rel(output_paths)
 df_col_rel = col_rel['col_rel']
 df_columns=col_rel['columns']
-#%%
+#%
 if not os.path.exists(output_paths['path_xl_format']):
     print("No se encuentra el archivo: columns and formatting.xlsx")
     raise SystemExit()
@@ -27,47 +27,58 @@ df_avail_hours['dia']=pd.to_datetime(df_avail_hours['dia'],errors='coerce').dt.s
 df_avail_hours['dia'].fillna('default',inplace=True)
 dict_avail_hours=df_avail_hours.set_index(['dia','maquina']).to_dict(orient='index')
 
-#%%
+#%
 path_master_doblado = file_selectors['master_file']
 df_master_doblado = load_excel_with_header_key(path_master_doblado, sheet_name='00. Formato para Master de WC', key_text='PN')
 df_master_doblado = rename_columns(df_master_doblado, df_col_rel, table_from='Master Doblado', sheet_from='00. Formato para Master de WC')
 df_master_doblado.replace('/','_',regex=True,inplace=True)
-#%%
+#%
 path_routing = file_selectors['routing_file']
 df_routing = load_excel_with_header_key(path_routing, sheet_name='Operations', key_text='Routing')
 df_routing = rename_columns(df_routing, df_col_rel, table_from='Routing', sheet_from='Operations')
-#%% Open order list
+
+# Equivalencias
+path_equiv = st.session_state.selected_paths['equivalencias_file']
+df_equiv=read_predefined_excel(path_equiv,df_columns,table='Equivalencias')
+dict_equiv=df_equiv.set_index('pn')['equivalencia'].to_dict()
+
+#% Open order list
 path_order_list = file_selectors['order_file']
 df_order_list = load_excel_with_header_key(path_order_list, key_text='Priority')
 df_order_list = rename_columns(df_order_list, df_col_rel, table_from='Lista de ordenes')
+df_order_list['pn_orig']=df_order_list['pn']
+df_order_list['pn']=df_order_list['pn'].replace(dict_equiv)
 check_mandatory_columns_df(df_order_list.columns,df_columns=df_columns,table='Lista de ordenes')
 df_missing_rout=get_common_records(df_order_list,df_routing,keys=['pn','operation_description'],how='uncommon')
-
-#%% Open part master
+df_missing_machine=df_order_list[(~df_order_list['pn'].isin(df_master_doblado['pn']))&(df_order_list['machine']!='')]
+#%%
+#% Open part master
 path_part_master = file_selectors['part_master']
 df_part_master = load_excel_with_header_key(path_part_master, key_text='Site')
 df_part_master = rename_columns(df_part_master, df_col_rel, table_from='Part Master')
 check_mandatory_columns_df(df_part_master.columns,df_columns=df_columns,table='Part Master')
 df_part_master=df_part_master[['pn','unit_selling_price']].drop_duplicates(subset=['pn'],keep='last')
-df_part_master=get_common_records(df_part_master,df_order_list,keys=['pn'])
-#%% Open old plan
+# df_part_master=get_common_records(df_part_master,df_order_list,keys=['pn'])
+#% Open old plan
 path_plan=output_paths['path_plan']
 df_plan_old=read_predefined_excel(path_plan,df_columns=df_columns,table='Manufacturing plan',check_mandatory=True)
 df_plan_old=rename_columns(df_plan_old,df_col_rel=df_col_rel,table_from='Manufacturing plan')
 df_plan_old=df_plan_old[~df_plan_old['status'].isna()]
 
-#%% Show orders already planned
+#% Show orders already planned
 df_already_planned=get_common_records(df_new=df_order_list,df_old=df_plan_old,keys=['wo','pn'])
 st.info("Las siguientes ordenes ya estan planeadas, continue si desea agregarlas al nuevo plan")
 st.info(df_already_planned)
-
+#%%
 #%%
 machine_status = {}
 assignments = []
 df_order_list.sort_values('priority', inplace=True)
 initial_date = pd.to_datetime(state['initial_date']).strftime('%Y-%m-%d')
+limit_date_ts   = pd.to_datetime(state['limit_date'])
 
 for idx, order in df_order_list.iterrows():
+    pn_orig = order['pn_orig']
     pn = order['pn']
     qty = order['pzas_x_hacer']
     wo = order['wo']
@@ -107,66 +118,72 @@ for idx, order in df_order_list.iterrows():
     if len(machines) == 0:
         print(f"Favor de asignar maquina al PN: {pn}")
         raise SystemExit()
-    
-    while qty > 0:
-        assigned = False
-        for m in machines:
-            for shift in machine_status[m]['avail'].keys():
-                available_time = machine_status[m]['avail'][shift]
-                if machine_status[m]['last_pn'] != pn:
-                    if run_time == 0:
-                        pieces_to_assign = qty
-                        time_used = 0
-                    else:
-                        if available_time < (run_time):
-                            continue
-                        pieces_possible = 1 + int((available_time - (run_time)) / run_time)
-                        pieces_possible = max(pieces_possible, 1)
-                        pieces_to_assign = min(pieces_possible, qty)
-                        time_used = pieces_to_assign * run_time
-                else:
-                    if run_time == 0:
-                        pieces_to_assign = qty
-                        time_used = 0
-                    else:
-                        if available_time < run_time:
-                            continue
-                        pieces_possible = int(available_time // run_time)
-                        pieces_to_assign = min(pieces_possible, qty)
-                        time_used = pieces_to_assign * run_time
 
+    for m in machines:
+        # continue assigning to this machine until qty==0 or date exceeds limit
+        while qty > 0:
+            current_ts = pd.to_datetime(machine_status[m]['date'])
+            if current_ts > limit_date_ts:
+                break  # move to next machine
+            assigned = False
+            for shift, available_time in list(machine_status[m]['avail'].items()):
+                # reuse existing run vs setup-time logic...
+                # compute pieces_to_assign and time_used
+                # determine setup and effective available time
+                if machine_status[m]['last_pn'] != pn:
+                    setup = setup_time
+                    # need space for setup  at least one run
+                    if available_time < setup + run_time:
+                        continue
+                    effective_time = available_time - setup
+                else:
+                    setup = 0
+                    if available_time < run_time:
+                        continue
+                    effective_time = available_time
+
+                # compute how many pieces fit
+                if run_time == 0:
+                    pieces_to_assign = qty
+                    time_used         = 0
+                else:
+                    pieces_possible   = int(effective_time // run_time)
+                    pieces_to_assign = min(max(pieces_possible, 1), qty)
+                    time_used         = pieces_to_assign * run_time
+                # record assignment
                 assignments.append({
-                    'date': machine_status[m]['date'],
+                    'date':  machine_status[m]['date'],
                     'machine': m,
                     'shift': shift,
                     'operation_description': routing_name,
-                    'pn': pn,
-                    'wo': wo,
+                    'pn':    pn_orig,
+                    'wo':    wo,
                     'priority': pty,
                     'pzas_x_hacer': pieces_to_assign,
-                    'time_used': time_used,
-                    'setup_time':setup_time
+                    'time_used':    time_used,
+                    'setup_time':   setup
                 })
-                machine_status[m]['avail'][shift] -= time_used
+                machine_status[m]['avail'][shift] -= (time_used + setup)
                 machine_status[m]['last_pn'] = pn
                 qty -= pieces_to_assign
                 assigned = True
                 if qty == 0:
                     break
-            if qty == 0:
-                break
-        if not assigned:
-            for m in machines:
-                next_date = (
-                    pd.to_datetime(machine_status[m]['date']) 
-                    + BDay(1)
-                ).strftime('%Y-%m-%d')                    
-                machine_status[m]['date'] = next_date
+            if not assigned:
+                # move this machine to next business day
+                next_ts = current_ts + BDay(1)
+                machine_status[m]['date'] = next_ts.strftime('%Y-%m-%d')
+                # reload availabilities for new date
                 override_key = (machine_status[m]['date'], m)
-                base_avail   = dict_avail_hours.get(override_key,
-                                                    dict_avail_hours[('default', m)])
+                base_avail   = dict_avail_hours.get(
+                                   override_key,
+                                   dict_avail_hours[('default', m)]
+                               )
                 machine_status[m]['avail'] = copy(base_avail)
-                machine_status[m]['last_pn'] = None
+                # machine_status[m]['last_pn'] = None
+        # if fully assigned, break out of machine loop
+        if qty == 0:
+            break
 
 df_plan_new=get_predefined_df(df_columns=df_columns,table='Manufacturing plan')
 df_plan_new = pd.concat([df_plan_new,pd.DataFrame(assignments)],ignore_index=True)
@@ -181,19 +198,17 @@ df_plan_old['unit_selling_price']=df_plan_old['unit_selling_price']*df_plan_old[
 plan_cols=df_columns[(df_columns['table']=='Manufacturing plan')&
            (~df_columns['mandatory_column'].isna())]['std_name'].to_list()
 df_plan_old=df_plan_old[plan_cols]
+df_plan_old['date']=pd.to_datetime(df_plan_old['date'],format='mixed').dt.strftime('%B, %#d, %Y')
+#%%
+df_plan_old.tail()
+#%%
 df_plan_old=rename_columns(df_plan_old,df_col_rel=df_col_rel,table_to='Manufacturing plan')
-#%%
-df_plan_old
-#%%
 df_plan_old.to_excel(path_plan,index=False)
+os.startfile(path_plan)
 #%%
 df_plan_old
-
-#%%
-df=df_plan_old
 #%%
 df_plan_old=rename_columns(df_plan_old,df_col_rel=st.session_state.df_col_rel,table_from='Manufacturing plan')    
-
 
 #%% Reportes
 machines=df_plan_old['machine'].drop_duplicates().tolist()
@@ -273,4 +288,23 @@ for machine in machines:
     wb.save(f"{base} {machine}{ext}")
 # %%
 
+#%% Validar plan
+close_xl_if_open(path_order_list)
+close_xl_if_open(path_plan)
+df_plan=read_excel(path_plan)
+df_plan=rename_columns(df_plan,df_col_rel=df_col_rel,table_from='Manufacturing plan')
+df_plan_grp=df_plan.groupby(['pn','wo']).sum(['pzas_x_hacer'])[['pzas_x_hacer']]
+df_plan_grp.reset_index(inplace=True)
+df_order_assignment=df_order_list.merge(df_plan_grp,how='left',on=['pn','wo'],suffixes=('','_assigned'))
+df_order_assignment['pzas_x_asignar']=df_order_assignment['pzas_x_hacer']-df_order_assignment['pzas_x_hacer_assigned']
+df_order_assignment.loc[df_order_assignment['pzas_x_asignar']==0,'status']='Planeada'
+df_order_assignment.loc[df_order_assignment['pzas_x_asignar']>0,'status']='Incompleta'
+df_order_assignment.loc[df_order_assignment['pzas_x_asignar'].isna(),'status']='Pendiente'
+df_order_assignment=df_order_assignment.drop(columns=['pzas_x_hacer_assigned','pzas_x_asignar'])
+orders_cols=df_columns[(df_columns['table']=='Lista de ordenes')]['std_name'].to_list()
+df_order_assignment=df_order_assignment[orders_cols]
+df_order_assignment=rename_columns(df_order_assignment,df_col_rel,table_to='Lista de ordenes')
+df_order_assignment.to_excel(path_order_list,index=False)
+df_plan.loc[df_plan['status'].isna(),'status']='Planeada'
+df_plan.to_excel(path_plan,sheet_name='Manufacturing plan',index=False)
 
