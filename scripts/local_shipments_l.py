@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V38. 2025-05-05
+    - Correccion de nombre de paths EDI Master y ELP master log
 - V37. 2025-04-28
     - Correccion en mayusculas del modelo, reorganizacion de botones y fechas
 - V36. 2025-04-27
@@ -1161,14 +1163,14 @@ def update_edi():
     st.session_state.running=True
     msg_edi_update=st.empty()
     msg_edi_update.info("Actualizando EDI")
-    path_ship_cust_new=get_path(state,'Shipment transactions')
+    path_ship_cust_new=get_path(state,'ELP Master log')
     close_xl_if_open(path_ship_cust_new)
     path_ship_elp_new=get_path(state,'InventoryStageBakup')
     close_xl_if_open(path_ship_elp_new)
     st.session_state.path_tracker=get_path(state,'Tracker')
     if 'df_prices' not in st.session_state:
         st.info('Lista de precios no disponible')
-    path_ship_elp=get_path(state,'ELP Master')
+    path_ship_elp=get_path(state,'EDI Master')
     close_xl_if_open(path_ship_elp)
     path_oor_old=get_path(state,'OOR')
     close_xl_if_open(path_oor_old)
@@ -1302,7 +1304,7 @@ def update_oor():
     msg_oor_update=st.empty()
     path_oor_old=get_path(state,'OOR')
     close_xl_if_open(path_oor_old)
-    path_ship_elp=get_path(state,'ELP Master')
+    path_ship_elp=get_path(state,'EDI Master')
     close_xl_if_open(path_ship_elp)
     df_edi=read_excel(path_ship_elp,sheet_name='EDI Master')
     df_ship_elp=read_excel(path_ship_elp,sheet_name='Shipment to ELP')
@@ -2524,10 +2526,12 @@ def load_price_list():
 # ----------------------------------------------------------------
 st.session_state.running=False
 st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V37. 2025-04-28</div>", unsafe_allow_html=True)
 st.title("Seguimiento a Embarques")
 
 # Load state and update if needed
 state = load_state_pickle()
+
 
 # Selección de carpeta de salidas
 st.header("Seleccionar carpeta de trabajo")
