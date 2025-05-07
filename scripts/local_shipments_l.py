@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V39. 2025-05-06
+    - Se usan los datos de EDI y los reportes, ya no del OOR a partir de la fecha Inicial de actualizacion
 - V38. 2025-05-05
     - Correccion de nombre de paths EDI Master y ELP master log
 - V37. 2025-04-28
@@ -205,7 +207,7 @@ mandatory_cols={
         'EDI Received']       
                 }
 
-mandatory_selectors=['Tracker','ELP Master','OOR']
+mandatory_selectors=['Tracker','EDI Master','OOR']
 
 sheets_to_keep=['OOR',
  'Trov Daily Status',
@@ -1524,6 +1526,7 @@ def update_oor():
     ws_oor_old=wb_oor_old['OOR']
     dict_oor_old=get_worksheet_df(ws_oor_old,'Family')
     df_oor_old=dict_oor_old['df']
+    df_oor_old['ProductServiceID']=df_oor_old['ProductServiceID'].str.upper()
     check_mandatory_cols(df_oor_old.columns,'OOR')
     # Part of the OOR that will be updated, we will remove duplicates from this part
     key_cols=['PurchaseOrder','ProductServiceID','LineNumber','AssignedDropZone']
@@ -1539,7 +1542,7 @@ def update_oor():
     df_oor[['Comment','Status']]=df_oor[['Comment','Status']].fillna('')
     
     df_oor_to_update=update_dataframe(df_oor_to_update,df_oor.fillna(0),key_cols,exceptions=except_columns)
-    df_oor_old=pd.concat([df_oor_old,df_oor_to_update])
+    df_oor_old=pd.concat([df_oor_old,df_oor])
     df_oor_old.reset_index(drop=True,inplace=True)
     path_oh_max=get_path(state,'OH Max')
 
@@ -2526,7 +2529,7 @@ def load_price_list():
 # ----------------------------------------------------------------
 st.session_state.running=False
 st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V37. 2025-04-28</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V39. 2025-05-06</div>", unsafe_allow_html=True)
 st.title("Seguimiento a Embarques")
 
 # Load state and update if needed

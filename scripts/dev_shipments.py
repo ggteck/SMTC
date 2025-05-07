@@ -185,7 +185,7 @@ df_edi['Quantity']=df_edi['Quantity'].astype(float)
 ws_ship_elp=wb_elp['Shipment to ELP']
 ws_dict_ship_elp=get_worksheet_df(ws_ship_elp,key_text='CUU ship Date',data_only=True)
 df_ship_elp=ws_dict_ship_elp['df']
-
+#%%
 df=pd.read_excel(path_ship_elp,sheet_name='Shipment to ELP')
 
 if not os.path.exists(output_paths['path_xl_format']):
@@ -269,7 +269,7 @@ if path_ship_elp_new!='Not selected':
         df_ship_elp_new['BOX qty']=1
 
     df_ship_elp=rename_columns(df_ship_elp,df_col_rel,table_from='ELP Master',sheet_from='Shipment to ELP')
-    #%%
+
     df_ship_elp['dz'].fillna('NULL',inplace=True)
     df_ship_elp=append_df_to_df(df_new=df_ship_elp_new,df_old=df_ship_elp,table='Shipment to ELP',keys=['po','modelo','box_id','dz'])
     df_ship_elp['family'].fillna('',inplace=True)
@@ -295,8 +295,8 @@ ws_edi=append_to_sheet(ws_dict_edi,ws_edi)
 ws_edi=update_column(ws_dict_edi,ws_edi,column='Order/Line cancelled?')
 ws_edi=update_column(ws_dict_edi,ws_edi,column='EDI Received')
 ws_dict_ship_elp['df']=df_ship_elp
-#%%
 
+#%%
 ws_ship_elp=append_to_sheet(ws_dict_ship_elp,ws_ship_elp)
 date_cols=df_columns[(df_columns['sheet']=='EDI Master')&(df_columns['data_type']=='date')]['column_name'].to_list()
 wb_elp=format_xl_dates(wb_elp,sheet_name='EDI Master',date_columns=date_cols)
@@ -345,6 +345,7 @@ df_wo=move_columns_to_front(df_wo,['po','modelo','wo','quantity','START DATE', '
 #% Edi
 df_edi=rename_columns(df_edi,df_col_rel,table_from='ELP Master',sheet_from='EDI Master')
 df_edi['modelo']=df_edi['modelo'].str.upper()
+
 #%%
 # Procesar envios al cliente eliminando cantidades negativas. Se conserva la fecha mas nueva de envio.
 if not os.path.exists(output_paths['path_ship_cust']):
@@ -392,7 +393,6 @@ df_edi_combined.rename({'Assigned':'Shipped to Cust'},axis=1,inplace=True)
 assignments_shp_elp=assign_quantities(df_pos=df_edi_combined,df_to_assign=df_ship_elp,additional_fields=['shipment_date_elp'])
 df_edi_combined=assignments_shp_elp['df_pos']
 df_edi_combined.rename({'Assigned':'Shipped to Elp'},axis=1,inplace=True)
-
 #%%
 # ### OOR Report
 
@@ -471,6 +471,7 @@ if not 'edi_received' in df_edi_combined.columns:
     df_edi_combined['edi_received']=''
 
 #%%
+
 #%%
 # Read customer shipments and shipments to elp
 df_ship_cust=read_excel(output_paths['path_ship_cust'])
@@ -488,8 +489,6 @@ df_ship_elp.loc[df_ship_elp['dz']=='','dz']='NULL'
 df_ship_elp['dz'].fillna('NULL',inplace=True)
 df_ship_elp=format_dates(df_ship_elp,['df_ship_elp'],type='slash')
 df_ship_elp=move_columns_to_front(df_ship_elp,['po','modelo','df_ship_elp','Quantity'])
-#%%
-df_ship_elp
 # Get index for hyperlinks
 #%%%
 df_wo.reset_index(inplace=True,drop=True)
@@ -522,6 +521,7 @@ df_edi_combined[df_edi_combined['shipment_date_elp']=='04/25/2025']
 #     df_prices.drop_duplicates(['ProductServiceID'],keep='last',inplace=True)
 
 #%%
+
 # ### Actualizar OOR con datos nuevos
 
 # Actualizar OOR
@@ -557,27 +557,35 @@ wb_oor_old=load_workbook(path_oor_old)
 ws_oor_old=wb_oor_old['OOR']
 dict_oor_old=get_worksheet_df(ws_oor_old,'Family')
 df_oor_old=dict_oor_old['df']
+df_oor_old['ProductServiceID']=df_oor_old['ProductServiceID'].str.upper()
+#%%
+#%%
+df_oor[df_oor['PurchaseOrder']=='POUS273758']['ProductServiceID']
+#%%
+df_oor_old[df_oor_old['PurchaseOrder']=='POUS273758']
+#%%
 check_mandatory_cols(df_oor_old.columns,'OOR')
 # Part of the OOR that will be updated, we will remove duplicates from this part
 key_cols=['PurchaseOrder','ProductServiceID','LineNumber','AssignedDropZone']
 df_edi_rec_dates=df_oor_old[key_cols+['EDI Received']].drop_duplicates(key_cols).copy()
-
+#%%
 df_oor_to_update=df_oor_old[df_oor_old['POUS Date'] >= pd.to_datetime(state["fecha_freeze"])]
+df_oor_to_update[df_oor_to_update['PurchaseOrder']=='POUS273758']['ProductServiceID']
+#%%
 # This part will be kept as is, duplicates are allowed
 df_oor_old=df_oor_old[df_oor_old['POUS Date'] < pd.to_datetime(state["fecha_freeze"])]
 except_columns=df_columns[(~df_columns['user_column'].isna())&(df_columns['sheet']=='OOR')]['column_name'].to_list()
 df_oor_to_update.drop_duplicates(subset=key_cols,inplace=True)
 df_oor[['Comment','Status']]=df_oor[['Comment','Status']].fillna('')
 df_oor_to_update=update_dataframe(df_oor_to_update,df_oor.fillna(0),key_cols,exceptions=except_columns)
-df_oor_old=pd.concat([df_oor_old,df_oor_to_update])
+df_oor_old=pd.concat([df_oor_old,df_oor])
 df_oor_old.reset_index(drop=True,inplace=True)
-#%%
 
+#%%
 path_oh_max=get_path(state,'OH Max')
 df_oh_max=read_excel(path_oh_max,header=None)
 
-df_oh_max['oh_max']
-#%%
+
 if path_oh_max!="Not selected":
     # Se actualiza el OH Max para todo el workbook ya que la formula toma en cuenta los embarcados y duplicados
     df_oh_max=read_excel(path_oh_max)
@@ -597,13 +605,17 @@ if path_oh_max!="Not selected":
     if not 'OH MAX' in df_oor_old.columns:
         df_oor_old['OH MAX']=0    
     df_oor_old['OH MAX'].fillna(0,inplace=True)
-
+#%%
 df_oor_old=df_oor_old.merge(df_edi_rec_dates,how='left',on=key_cols,suffixes=('', '_new'))
+#%%
 df_oor_old.loc[df_oor_old['EDI Received'].isna(),'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received'].isna(),'EDI Received_new']
 df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received']==0,'EDI Received_new']
 df_oor_old.drop(columns='EDI Received_new',inplace=True)
 
-
+#%%
+df_edi_rec_dates[df_edi_rec_dates['PurchaseOrder']=='POUS273758']
+#%%
+df_oor_old[df_oor_old['PurchaseOrder']=='POUS273758'][['PurchaseOrder','ProductServiceID','LineNumber','AssignedDropZone']]
 #%%
 if 'df_prices' not in st.session_state:
     print('Lista de precios no disponible')    
@@ -614,8 +626,6 @@ else:
     df_prices=st.session_state.df_prices
     df_prices=rename_columns(df_prices,df_col_rel=df_col_rel,table_to='OOR Report',sheet_to='OOR')
     df_oor_old=df_oor_old.merge(df_prices,how='left',on=['ProductServiceID'])
-#%%
-df_oor_old
 #%%
 
 ws_oor_old=update_sheet(dict_oor_old,ws_oor_old)
@@ -1075,3 +1085,34 @@ for idx,row in df_oor[['oor_status','Status_cell','latest_commit_date','latest_c
 
 save_wb(wb_oor,path_oor)
 os.startfile(path_oor)
+#%%
+#%%
+dict_oors=pd.read_excel(r"E:/silentgil/SMTC/Embarques/inputs3/Book1.xlsx",sheet_name=None)
+#%%
+df_flat=dict_oors['flat']
+df_backup=dict_oors['backup2']
+#%%
+df_flat['ProductServiceID']=df_flat['ProductServiceID'].str.upper()
+df_backup['ProductServiceID']=df_backup['ProductServiceID'].str.upper()
+#%%
+df_flat_qty=df_flat.groupby(['PurchaseOrder','ProductServiceID']).sum('PO QTY')[['PO QTY']]
+df_flat_qty.reset_index(inplace=True)
+#%%
+df_backup[df_backup.duplicated(['PurchaseOrder','ProductServiceID'])].tail()
+df_backup_qty=df_backup.groupby(['PurchaseOrder','ProductServiceID']).sum('PO QTY')[['PO QTY']]
+df_backup_qty.reset_index(inplace=True)
+#%%
+df_merge=df_flat_qty.merge(df_backup_qty,how='right',on=['PurchaseOrder','ProductServiceID'])
+#%%
+df_merge[(df_merge['PO QTY_x']!=df_merge['PO QTY_y'])]
+#%%
+df_backup[(df_backup['PurchaseOrder']=='POUS273470')&(df_backup['ProductServiceID']=='L50-I-12-12-40-80-MULT-15X23')]
+
+#%%
+df_edi=pd.read_excel(state['selections']['EDI Master'],sheet_name='EDI Master')
+#%%
+df_edi['ProductService ID']=df_edi['ProductService ID'].str.upper()
+#%%
+df_edi[df_edi.duplicated(['PO','ProductService ID','LineNumber'])]
+#%%
+df_edi
