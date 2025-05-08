@@ -1,4 +1,6 @@
 # Manufacturing plan
+# - V9. 2025-05-07
+#     - Se asignan numeros de parte solo a una maquina
 # - V8. 2025-05-05
 #     - Se corrige orden de los reportes, setup 
 #     - se simplifica el proceso de asignacion
@@ -478,6 +480,7 @@ def create_plan():
 
     machine_status = {}
     assignments = []
+    pn_to_machine = {}
     df_order_list.sort_values('priority', inplace=True)
     initial_date   = pd.to_datetime(state['initial_date']).strftime('%Y-%m-%d')
     limit_date_ts  = pd.to_datetime(state['limit_date'])
@@ -501,15 +504,18 @@ def create_plan():
         setup_time = pn_info.iloc[0]['setup_time']
 
         # machine selection
-        if machine_default:
-            machines = [machine_default]
+        if pn in pn_to_machine:
+            machines = [pn_to_machine[pn]]
         else:
-            rows = df_master_doblado[df_master_doblado['pn']==pn]
-            if rows.empty:
-                rows = df_master_doblado[df_master_doblado['pn']==pn_orig]
+            if machine_default:
+                machines = [machine_default]
+            else:
+                rows = df_master_doblado[df_master_doblado['pn']==pn]
                 if rows.empty:
-                    continue
-            machines = [v for k,v in rows.iloc[0].items() if 'maq_opc' in k and v]
+                    rows = df_master_doblado[df_master_doblado['pn']==pn_orig]
+                    if rows.empty:
+                        continue
+                machines = [v for k,v in rows.iloc[0].items() if 'maq_opc' in k and v]
 
         # init status
         for m in machines:
@@ -569,6 +575,8 @@ def create_plan():
                     machine_status[m]['last_pn'] = pn
                     qty -= pieces
                     assigned = True
+                    if pn not in pn_to_machine:
+                        pn_to_machine[pn] = m
                     break
                 if not assigned:
                     # advance to next day
