@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V40. 2025-05-07
+    - Reportes de troubleshooting
 - V39. 2025-05-06
     - Se usan los datos de EDI y los reportes, ya no del OOR a partir de la fecha Inicial de actualizacion
 - V38. 2025-05-05
@@ -448,9 +450,19 @@ def update_dataframe(df_original,df_to_integrate,key_cols=[],exceptions=[]):
     common_cols = df1_indexed.columns.intersection(df2_indexed.columns)
     common_cols = [col for col in common_cols if col not in exceptions]
     df1_indexed.update(df2_indexed[common_cols])
-
     # Append rows from df2 that are not in df1
     new_rows = df2_indexed.loc[~df2_indexed.index.isin(df1_indexed.index)]
+    # Remove this part, is only for troubleshooting
+    updated_rows = df1_indexed[common_cols] != df_original.set_index(key_cols)[common_cols]
+    updated_rows = updated_rows.any(axis=1)  # Check if any column in the row was updated
+    modified_rows_df = df1_indexed[updated_rows]
+    modified_rows_df.reset_index(inplace=True)
+    modified_rows_df[['Family ', 'EDI Received', 'POUS Date', 'PurchaseOrder', 'LineNumber', 
+                       'PO QTY', 'ProductServiceID', 'AssignedDropZone']].to_excel("modified_rows.xlsx", index=False)
+    df_tmp = new_rows.reset_index()
+    df_tmp[['Family ', 'EDI Received', 'POUS Date', 'PurchaseOrder', 'LineNumber', 
+            'PO QTY', 'ProductServiceID', 'AssignedDropZone']].to_excel("new_rows.xlsx", index=False)
+
     df_original = pd.concat([df1_indexed, new_rows]).reset_index()
     return df_original
 
@@ -1308,10 +1320,10 @@ def update_oor():
     close_xl_if_open(path_oor_old)
     path_ship_elp=get_path(state,'EDI Master')
     close_xl_if_open(path_ship_elp)
+    msg_oor_update=st.info("Generando reportes")
     df_edi=read_excel(path_ship_elp,sheet_name='EDI Master')
     df_ship_elp=read_excel(path_ship_elp,sheet_name='Shipment to ELP')
     
-    msg_oor_update=st.info("Generando reportes")
     # Reporte de work orders, que se encuentra en proceso de produccion
     msg_oor_update.info("Integrando tracker")
     st.session_state.path_tracker=get_path(state,'Tracker')
@@ -1541,8 +1553,11 @@ def update_oor():
         df_oor['Comment']=''
     df_oor[['Comment','Status']]=df_oor[['Comment','Status']].fillna('')
     
+    df_oor_to_update[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']].to_excel("df_oor_to_update.xlsx")
+    df_oor_old[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']].to_excel("df_oor_old.xlsx")
+    df_oor[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']].to_excel("df_oor.xlsx")
     df_oor_to_update=update_dataframe(df_oor_to_update,df_oor.fillna(0),key_cols,exceptions=except_columns)
-    df_oor_old=pd.concat([df_oor_old,df_oor])
+    df_oor_old=pd.concat([df_oor_old,df_oor_to_update])
     df_oor_old.reset_index(drop=True,inplace=True)
     path_oh_max=get_path(state,'OH Max')
 
