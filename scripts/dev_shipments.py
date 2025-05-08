@@ -559,11 +559,6 @@ dict_oor_old=get_worksheet_df(ws_oor_old,'Family')
 df_oor_old=dict_oor_old['df']
 df_oor_old['ProductServiceID']=df_oor_old['ProductServiceID'].str.upper()
 #%%
-#%%
-df_oor[df_oor['PurchaseOrder']=='POUS273758']['ProductServiceID']
-#%%
-df_oor_old[df_oor_old['PurchaseOrder']=='POUS273758']
-#%%
 check_mandatory_cols(df_oor_old.columns,'OOR')
 # Part of the OOR that will be updated, we will remove duplicates from this part
 key_cols=['PurchaseOrder','ProductServiceID','LineNumber','AssignedDropZone']
@@ -577,6 +572,13 @@ df_oor_old=df_oor_old[df_oor_old['POUS Date'] < pd.to_datetime(state["fecha_free
 except_columns=df_columns[(~df_columns['user_column'].isna())&(df_columns['sheet']=='OOR')]['column_name'].to_list()
 df_oor_to_update.drop_duplicates(subset=key_cols,inplace=True)
 df_oor[['Comment','Status']]=df_oor[['Comment','Status']].fillna('')
+#%%
+df_oor_to_update.columns
+#%%
+df_oor_to_update[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']]
+df_oor_old[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']]
+df_oor[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']]
+#%%
 df_oor_to_update=update_dataframe(df_oor_to_update,df_oor.fillna(0),key_cols,exceptions=except_columns)
 df_oor_old=pd.concat([df_oor_old,df_oor])
 df_oor_old.reset_index(drop=True,inplace=True)
