@@ -36,12 +36,12 @@ df_master_doblado.replace('/','_',regex=True,inplace=True)
 path_routing = file_selectors['routing_file']
 df_routing = load_excel_with_header_key(path_routing, sheet_name='Operations', key_text='Routing')
 df_routing = rename_columns(df_routing, df_col_rel, table_from='Routing', sheet_from='Operations')
-
+#%%
 # Equivalencias
 path_equiv = st.session_state.selected_paths['equivalencias_file']
 df_equiv=read_predefined_excel(path_equiv,df_columns,table='Equivalencias')
 dict_equiv=df_equiv.set_index('pn')['equivalencia'].to_dict()
-
+dict_equiv_inv={v: k for k, v in dict_equiv.items()}
 #% Open order list
 path_order_list = file_selectors['order_file']
 df_order_list = load_excel_with_header_key(path_order_list, key_text='Priority')
@@ -67,6 +67,17 @@ df_part_master = load_excel_with_header_key(path_part_master, key_text='Site')
 df_part_master = rename_columns(df_part_master, df_col_rel, table_from='Part Master')
 check_mandatory_columns_df(df_part_master.columns,df_columns=df_columns,table='Part Master')
 df_part_master=df_part_master[['pn','unit_selling_price']].drop_duplicates(subset=['pn'],keep='last')
+df_part_master_orig=df_part_master.copy()
+df_part_master['pn']=df_part_master['pn'].replace(dict_equiv_inv)
+df_part_master=pd.concat([df_part_master_orig,df_part_master])
+df_part_master=df_part_master.drop_duplicates(subset=['pn'],keep='last')
+#%%
+df_part_master[df_part_master['pn'].str.contains('ENC-1500-120-20')]
+#%%
+
+#%%
+df_part_master['pn'].replace(dict_equiv)
+#%%
 # df_part_master=get_common_records(df_part_master,df_order_list,keys=['pn'])
 #% Open old plan
 path_plan=output_paths['path_plan']
@@ -191,6 +202,11 @@ df_plan_new.sort_values(['date', 'machine', 'shift', 'priority', 'wo'], inplace=
 df_plan_new['pzas_x_hora']=(df_plan_new['pzas_x_hacer']/df_plan_new['time_used']).astype(float).round(2)
 df_plan_old=df_plan_old[~df_plan_old['status'].isnull()]
 df_plan_old=append_df_to_df(df_new=df_plan_new,df_old=df_plan_old,table='Manufacturing plan',keys=['wo','pn'],allow_duplicates=True)
+
+#%%
+#%%
+df_part_master
+#%%
 if 'unit_selling_price' in df_plan_old.columns:
     df_plan_old.drop(columns=['unit_selling_price'],inplace=True)
 df_plan_old=df_plan_old.merge(df_part_master,on='pn',how='left')    

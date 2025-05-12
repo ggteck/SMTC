@@ -1,4 +1,8 @@
 # Manufacturing plan
+# - V10. 2025-05-12
+#     - Se agrega fecha a nombre de reportes
+#     - Definicion de precios tomando en cuenta sustitutos
+#     - El proceso continua aunque falte definir routers o maquinas
 # - V9. 2025-05-07
 #     - Se asignan numeros de parte solo a una maquina
 # - V8. 2025-05-05
@@ -386,14 +390,7 @@ def verify_order_list():
     check_mandatory_columns_df(df_order_list.columns,df_columns=df_columns,table='Lista de ordenes')
     df_order_list = rename_columns(df_order_list, df_col_rel, table_from='Lista de ordenes')
     st.session_state.df_order_list=df_order_list
-    #% Open part master
-    path_part_master = st.session_state.selected_paths['part_master']
-    df_part_master = load_excel_with_header_key(path_part_master, key_text='Site')
-    check_mandatory_columns_df(df_part_master.columns,df_columns=df_columns,table='Part Master')
-    df_part_master = rename_columns(df_part_master, df_col_rel, table_from='Part Master')
-    df_part_master=df_part_master[['pn','unit_selling_price']].drop_duplicates(subset=['pn'],keep='last')
-    # df_part_master=get_common_records(df_part_master,df_order_list,keys=['pn'])
-    st.session_state.df_part_master=df_part_master
+
     #% Open old plan
     path_plan=st.session_state.output_paths['path_plan']
     df_plan_old=read_predefined_excel(path_plan,df_columns=st.session_state.df_columns,table='Manufacturing plan',check_mandatory=True)
@@ -445,7 +442,7 @@ def create_plan():
     path_equiv = st.session_state.selected_paths['equivalencias_file']
     df_equiv=read_predefined_excel(path_equiv,df_columns,table='Equivalencias')
     dict_equiv=df_equiv.set_index('pn')['equivalencia'].to_dict()
-
+    dict_equiv_inv={v: k for k, v in dict_equiv.items()}
     # Lista de ordenes
     path_order_list = st.session_state.selected_paths['order_file']
     df_order_list = load_excel_with_header_key(path_order_list, key_text='Priority')
@@ -454,12 +451,14 @@ def create_plan():
     df_order_list['pn_orig']=df_order_list['pn']
     df_order_list['pn']=df_order_list['pn'].replace(dict_equiv)
     # Missing routings or machine definition alert
-    df_missing_rout=get_common_records(df_order_list,df_routing,keys=['pn','operation_description'],how='uncommon')
+    #df_missing_rout=get_common_records(df_order_list,df_routing,keys=['pn','operation_description'],how='uncommon')
     df_order_list['composite_key'] = list(zip(*(df_order_list[col] for col in ['pn','operation_description'])))
     df_routing['composite_key'] = list(zip(*(df_routing[col] for col in ['pn','operation_description'])))
     df_missing_rout=df_order_list[~df_order_list['composite_key'].isin(df_routing['composite_key'])]
     df_missing_rout['composite_key'] = list(zip(*(df_missing_rout[col] for col in ['pn_orig','operation_description'])))
     df_missing_rout=df_missing_rout[~df_missing_rout['composite_key'].isin(df_routing['composite_key'])]
+    if 'composite_key' in df_missing_rout.columns:
+        df_missing_rout.drop(columns=['composite_key'],inplace=True)
     df_missing_machine=df_order_list[(~df_order_list['pn'].isin(df_master_doblado['pn']))&
                                     (~df_order_list['pn_orig'].isin(df_master_doblado['pn']))&
                                     (df_order_list['machine']=='')]
@@ -468,12 +467,23 @@ def create_plan():
     if len(df_missing_rout)>0:
         msg_create_plan.error("Falta definir router para las lineas:")
         st.dataframe(df_missing_rout)
-        st.stop()
+        # st.stop()
     if len(df_missing_machine)>0:
         msg_create_plan.error("Falta definir maquina para la lineas:")
         st.dataframe(df_missing_machine)
-        st.stop()
+        # st.stop()
 
+    #% Open part master
+    path_part_master = st.session_state.selected_paths['part_master']
+    df_part_master = load_excel_with_header_key(path_part_master, key_text='Site')
+    check_mandatory_columns_df(df_part_master.columns,df_columns=df_columns,table='Part Master')
+    df_part_master = rename_columns(df_part_master, df_col_rel, table_from='Part Master')
+    df_part_master=df_part_master[['pn','unit_selling_price']].drop_duplicates(subset=['pn'],keep='last')
+    df_part_master_orig=df_part_master.copy()
+    df_part_master['pn']=df_part_master['pn'].replace(dict_equiv_inv)
+    df_part_master=pd.concat([df_part_master_orig,df_part_master])
+    df_part_master=df_part_master.drop_duplicates(subset=['pn'],keep='last')
+    st.session_state.df_part_master=df_part_master
     df_plan_old=read_predefined_excel(path_plan,df_columns=df_columns,table='Manufacturing plan',check_mandatory=True)
     df_plan_old=rename_columns(df_plan_old,df_col_rel=df_col_rel,table_from='Manufacturing plan')
 
@@ -504,18 +514,17 @@ def create_plan():
         setup_time = pn_info.iloc[0]['setup_time']
 
         # machine selection
-        if pn in pn_to_machine:
+        if machine_default:
+            machines = [machine_default]
+        elif pn in pn_to_machine:
             machines = [pn_to_machine[pn]]
         else:
-            if machine_default:
-                machines = [machine_default]
-            else:
-                rows = df_master_doblado[df_master_doblado['pn']==pn]
+            rows = df_master_doblado[df_master_doblado['pn']==pn]
+            if rows.empty:
+                rows = df_master_doblado[df_master_doblado['pn']==pn_orig]
                 if rows.empty:
-                    rows = df_master_doblado[df_master_doblado['pn']==pn_orig]
-                    if rows.empty:
-                        continue
-                machines = [v for k,v in rows.iloc[0].items() if 'maq_opc' in k and v]
+                    continue
+            machines = [v for k,v in rows.iloc[0].items() if 'maq_opc' in k and v]
 
         # init status
         for m in machines:
@@ -696,7 +705,8 @@ def generate_reports():
         if col_sizes:
             wb=apply_col_sizes(wb,col_sizes)            
         base, ext = os.path.splitext(st.session_state.output_paths['path_report'])
-        wb.save(f"{base} {machine}{ext}")
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        wb.save(f"{base} {machine} {timestamp}{ext}")
     msg_generate_reports.success("Reportes listos")
 
 
@@ -758,7 +768,7 @@ st.session_state.dict_formats=get_xl_formatting()
 
 
 st.set_page_config(page_title="Plan de manufactura", page_icon=":factory:")
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V8. 2025-05-05</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V10. 2025-05-12</div>", unsafe_allow_html=True)
 st.markdown(
     r"""
     <style>
