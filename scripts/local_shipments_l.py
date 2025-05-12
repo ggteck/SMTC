@@ -1,5 +1,8 @@
 """
 # Seguimiento a embarques
+- V41. 2025-05-12
+    - Los gaps de diferentes fechas para el calculo de estatus pueden configurarse
+    - Se corrige error en gating parts
 - V40. 2025-05-07
     - Reportes de troubleshooting
 - V39. 2025-05-06
@@ -1783,6 +1786,7 @@ def gating_parts():
     df_acc_shorts=df_oor[(df_oor['accessory_gating_part']=='Acc Short')&
                         (df_oor['oor_status'].str.lower()!='cancelled')&
                         (df_oor['family'].str[0:5].str.lower()=='acces')]
+    df_acc_shorts['quantity'] = pd.to_numeric(df_acc_shorts['quantity'], errors='coerce').fillna(0)
     df_acc_shorts['Cumulative Sum'] = df_acc_shorts.groupby(['modelo'])['quantity'].cumsum()
     df_arrivals['Cumulative Sum']=df_arrivals['Cumulative Sum'].astype(int)
     df_acc_shorts['Cumulative Sum']=df_acc_shorts['Cumulative Sum'].astype(int)
@@ -2019,9 +2023,9 @@ def actualizar_status():
     # Actualizar fecha: Last commit date
     df_short_dates=df_oor.copy()
     df_short_dates=df_short_dates[['po','fixt_gp_eta','acc_gp_eta','estimated_move_date_cuu']]
-    df_short_dates['fixt_gp_eta_7_days']=pd.to_datetime(df_short_dates['fixt_gp_eta'], errors='coerce')+7*BDay()
-    df_short_dates['acc_gp_eta_2_days']=pd.to_datetime(df_short_dates['acc_gp_eta'], errors='coerce')+2*BDay()
-    df_short_dates['estimated_move_date_cuu_2_days']=pd.to_datetime(df_short_dates['estimated_move_date_cuu'], errors='coerce')+2*BDay()
+    df_short_dates['fixt_gp_eta_7_days']=pd.to_datetime(df_short_dates['fixt_gp_eta'], errors='coerce')+state.get('fixture_eta_gap')*BDay()
+    df_short_dates['acc_gp_eta_2_days']=pd.to_datetime(df_short_dates['acc_gp_eta'], errors='coerce')+state.get('accessory_eta_gap')*BDay()
+    df_short_dates['estimated_move_date_cuu_2_days']=pd.to_datetime(df_short_dates['estimated_move_date_cuu'], errors='coerce')+state.get('accessory_eta_gap')*BDay()
     # Max dates for shortage status
     df_short_dates['max_date_short']=df_short_dates[['fixt_gp_eta_7_days','acc_gp_eta_2_days']].max(axis=1)
     # Max datefor In shipping plan Case2
@@ -2544,7 +2548,7 @@ def load_price_list():
 # ----------------------------------------------------------------
 st.session_state.running=False
 st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V39. 2025-05-06</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V41. 2025-05-12</div>", unsafe_allow_html=True)
 st.title("Seguimiento a Embarques")
 
 # Load state and update if needed
@@ -2677,6 +2681,68 @@ if st.button("Gating Parts", key="gating_parts"):
     st.session_state.gating_msg = "Gating Parts completado."
 if "gating_msg" in st.session_state:
     st.write(st.session_state.gating_msg)
+
+st.divider()
+
+fixture_eta_gap, accessory_eta_gap, move_eta_gap = st.columns(3)
+# Inicializar estado del número input: Fixture ETA Gap
+if "fixture_eta_gap_input" not in st.session_state:
+    st.session_state["fixture_eta_gap_input"] = state.get("fixture_eta_gap", 0)
+
+# Callback para guardar estado al cambiar el número
+
+def _save_fixture_eta_gap():
+    state["fixture_eta_gap"] = st.session_state["fixture_eta_gap_input"]
+    save_state_pickle(state)
+
+# Número input: Fixture ETA Gap con callback
+with fixture_eta_gap: 
+    st.number_input(
+        "Fixture ETA Gap",
+        min_value=0,
+        step=1,
+        key="fixture_eta_gap_input",
+        on_change=_save_fixture_eta_gap
+    )
+# Inicializar estado del número input: Accessory ETA Gap
+if "accessory_eta_gap_input" not in st.session_state:
+    st.session_state["accessory_eta_gap_input"] = state.get("accessory_eta_gap", 0)
+
+# Callback para guardar estado al cambiar el número
+
+def _save_accessory_eta_gap():
+    state["accessory_eta_gap"] = st.session_state["accessory_eta_gap_input"]
+    save_state_pickle(state)
+
+# Número input: Accessory ETA Gap con callback
+with accessory_eta_gap:
+    st.number_input(
+        "Accessory ETA Gap",
+        min_value=0,
+        step=1,
+        key="accessory_eta_gap_input",
+        on_change=_save_accessory_eta_gap
+    )
+
+# Inicializar estado del número input: Move Gap
+if "move_eta_gap_input" not in st.session_state:
+    st.session_state["move_eta_gap_input"] = state.get("move_eta_gap", 0)
+
+# Callback para guardar estado al cambiar el número
+
+def _save_move_eta_gap():
+    state["move_eta_gap"] = st.session_state["move_eta_gap_input"]
+    save_state_pickle(state)
+
+# Número input: Move ETA Gap con callback
+with move_eta_gap:
+    st.number_input(
+        "Estimated Move Gap",
+        min_value=0,
+        step=1,
+        key="move_eta_gap_input",
+        on_change=_save_move_eta_gap
+    )
 
 if st.button("Actualizar Status", key="actualizar_status"):
     actualizar_status()

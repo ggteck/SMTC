@@ -12,6 +12,7 @@ from local_shipments_l import  *
 state=load_state_pickle()
 #%%
 state
+
 # %%
 #%%
 
@@ -813,11 +814,12 @@ df_oor=set_hyperlink(df_oor,sheet_name='Short Detail',col_name='fixture_gating_p
 df_arrivals=dict_gating['Arrivals']
 df_arrivals=rename_columns(df_arrivals,df_col_rel,table_from='Gating Parts',sheet_from='Arrivals')
 df_arrivals.sort_values(['modelo','arrival_due'], inplace=True)
+#%%
 df_arrivals['Cumulative Sum'] = df_arrivals.groupby(['modelo'])['arrival_qty'].cumsum()
-
 df_acc_shorts=df_oor[(df_oor['accessory_gating_part']=='Acc Short')&
                      (df_oor['oor_status'].str.lower()!='cancelled')&
                      (df_oor['family'].str[0:5].str.lower()=='acces')]
+df_acc_shorts['quantity'] = pd.to_numeric(df_acc_shorts['quantity'], errors='coerce').fillna(0)
 df_acc_shorts['Cumulative Sum'] = df_acc_shorts.groupby(['modelo'])['quantity'].cumsum()
 df_arrivals['Cumulative Sum']=df_arrivals['Cumulative Sum'].astype(int)
 df_acc_shorts['Cumulative Sum']=df_acc_shorts['Cumulative Sum'].astype(int)
@@ -1047,12 +1049,14 @@ df_oor=df_oor[idx]
 df_oor['oor_status']=df_oor['status_new']
 
 
+
+
 # Actualizar fecha: Last commit date
 df_short_dates=df_oor.copy()
 df_short_dates=df_short_dates[['po','fixt_gp_eta','acc_gp_eta','estimated_move_date_cuu']]
-df_short_dates['fixt_gp_eta_7_days']=pd.to_datetime(df_short_dates['fixt_gp_eta'], errors='coerce')+7*BDay()
-df_short_dates['acc_gp_eta_2_days']=pd.to_datetime(df_short_dates['acc_gp_eta'], errors='coerce')+2*BDay()
-df_short_dates['estimated_move_date_cuu_2_days']=pd.to_datetime(df_short_dates['estimated_move_date_cuu'], errors='coerce')+2*BDay()
+df_short_dates['fixt_gp_eta_7_days']=pd.to_datetime(df_short_dates['fixt_gp_eta'], errors='coerce')+state.get('fixture_eta_gap')*BDay()
+df_short_dates['acc_gp_eta_2_days']=pd.to_datetime(df_short_dates['acc_gp_eta'], errors='coerce')+state.get('accessory_eta_gap')*BDay()
+df_short_dates['estimated_move_date_cuu_2_days']=pd.to_datetime(df_short_dates['estimated_move_date_cuu'], errors='coerce')+state.get('accessory_eta_gap')*BDay()
 # Max dates for shortage status
 df_short_dates['max_date_short']=df_short_dates[['fixt_gp_eta_7_days','acc_gp_eta_2_days']].max(axis=1)
 # Max datefor In shipping plan Case2
