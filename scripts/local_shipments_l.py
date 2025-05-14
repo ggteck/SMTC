@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V42. 2025-05-13
+    - Correccion, manejo de mayusculas en gating parts y calculo de status
 - V41. 2025-05-12
     - Los gaps de diferentes fechas para el calculo de estatus pueden configurarse
     - Se corrige error en gating parts
@@ -1744,8 +1746,8 @@ def gating_parts():
     ws_oor=wb_oor['OOR']
     dict_oor=get_worksheet_df(ws_oor,'Family',data_only=True)
     df_oor=rename_columns(dict_oor['df'],df_col_rel,table_from='OOR Report',sheet_from='OOR')
-
-    # Ficture Gating part and ETA
+    df_oor['modelo']=df_oor['modelo'].str.upper()
+    # Fixture Gating part and ETA
     df_ready=dict_gating['Ready'].drop_duplicates()
     df_ready['rdy']='CTB'
     df_ready=rename_columns(df_ready,df_col_rel,table_from='Gating Parts',sheet_from='Ready')
@@ -1836,7 +1838,6 @@ def actualizar_status():
     # Columnas numericas se suman
 
     path_oor=get_path(state,'OOR')
-    sheet_rel=extract_selected_sheets(path_oor,sheets_to_keep,keep_original=False)
     # df_oor=load_excel_with_header_key(path_oor,sheet_name='OOR',key_text='Family ', dtype=str)
     wb_oor=load_workbook(path_oor,data_only=True)
     ws_oor=wb_oor['OOR']
@@ -1846,6 +1847,7 @@ def actualizar_status():
 
     dict_oor=get_worksheet_df(ws_oor,'Family ',data_only=True)
     df_oor=dict_oor['df']
+    df_oor['ProductServiceID']=df_oor['ProductServiceID'].str.upper()
     df_oor_stat=rename_columns(df_oor,df_col_rel,table_from='OOR Report',sheet_from='OOR')
     df_oor_stat=df_oor_stat.copy()
 
@@ -2548,7 +2550,7 @@ def load_price_list():
 # ----------------------------------------------------------------
 st.session_state.running=False
 st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V41. 2025-05-12</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V42. 2025-05-13</div>", unsafe_allow_html=True)
 st.title("Seguimiento a Embarques")
 
 # Load state and update if needed

@@ -777,7 +777,7 @@ wb_oor=load_workbook(path_oor)
 ws_oor=wb_oor['OOR']
 dict_oor=get_worksheet_df(ws_oor,'Family',data_only=True)
 df_oor=rename_columns(dict_oor['df'],df_col_rel,table_from='OOR Report',sheet_from='OOR')
-
+df_oor['modelo']=df_oor['modelo'].str.upper()
 # Ficture Gating part and ETA
 df_ready=dict_gating['Ready'].drop_duplicates()
 df_ready['rdy']='CTB'
@@ -788,6 +788,7 @@ if 'rdy' in df_oor.columns:
 df_oor=df_oor.merge(df_ready[['po','modelo','rdy']],how='left',on=['po','modelo'])
 df_oor.loc[df_oor['rdy']=='CTB','fixture_gating_part']='CTB'
 df_short_detail=rename_columns(dict_gating['Shorts'],df_col_rel,table_from='Gating Parts',sheet_from='Shorts')
+df_short_detail['modelo']=df_short_detail['modelo'].str.upper()
 df_short_detail.sort_values(['po','modelo','gating_due'],inplace=True)
 
 df_short=df_short_detail.drop_duplicates(['po','modelo'],keep='last').copy()
@@ -801,6 +802,10 @@ df_short=df_short.drop_duplicates(['po','modelo'],keep='last')
 
 df_oor=df_oor.merge(df_short,how='left',on=['po','modelo'])
 df_oor['fixture_gating_part']=''
+#%%
+df_oor.loc[df_oor['po']=='POUS273387']
+
+#%%
 df_oor.loc[~df_oor['component'].isnull(),'fixture_gating_part']=df_oor.loc[~df_oor['component'].isnull(),'component']
 df_oor.loc[~df_oor['component'].isnull(),'fixt_gp_eta']=df_oor.loc[~df_oor['component'].isnull(),'gating_due']
 
@@ -875,6 +880,7 @@ if ws_oor['A1'].value is None:
 
 dict_oor=get_worksheet_df(ws_oor,'Family ',data_only=True)
 df_oor=dict_oor['df']
+df_oor['ProductServiceID']=df_oor['ProductServiceID'].str.upper()
 df_oor_stat=rename_columns(df_oor,df_col_rel,table_from='OOR Report',sheet_from='OOR')
 df_oor_stat=df_oor_stat.copy()
 
