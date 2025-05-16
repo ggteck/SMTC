@@ -574,8 +574,6 @@ except_columns=df_columns[(~df_columns['user_column'].isna())&(df_columns['sheet
 df_oor_to_update.drop_duplicates(subset=key_cols,inplace=True)
 df_oor[['Comment','Status']]=df_oor[['Comment','Status']].fillna('')
 #%%
-df_oor_to_update.columns
-#%%
 df_oor_to_update[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']]
 df_oor_old[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']]
 df_oor[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']]
@@ -583,7 +581,6 @@ df_oor[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QT
 df_oor_to_update=update_dataframe(df_oor_to_update,df_oor.fillna(0),key_cols,exceptions=except_columns)
 df_oor_old=pd.concat([df_oor_old,df_oor])
 df_oor_old.reset_index(drop=True,inplace=True)
-
 #%%
 path_oh_max=get_path(state,'OH Max')
 df_oh_max=read_excel(path_oh_max,header=None)
@@ -630,8 +627,11 @@ else:
     df_prices=rename_columns(df_prices,df_col_rel=df_col_rel,table_to='OOR Report',sheet_to='OOR')
     df_oor_old=df_oor_old.merge(df_prices,how='left',on=['ProductServiceID'])
 #%%
-
+df_oor_to_update[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']].to_excel("df_oor_to_update.xlsx")
+#%%
 ws_oor_old=update_sheet(dict_oor_old,ws_oor_old)
+#%%
+path_oor_old
 #%%
 # Value A1=1 is just to check later if formulas are evaluated
 ws_oor_old['A1'].value="=1"

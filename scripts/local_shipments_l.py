@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V43. 2025-05-15
+    - Se agrega verificacion de duplicados en la actualizacion del oor en caso de que no corra antes la actualiacion de Edi
 - V42. 2025-05-13
     - Correccion, manejo de mayusculas en gating parts y calculo de status
 - V41. 2025-05-12
@@ -450,7 +452,6 @@ def update_dataframe(df_original,df_to_integrate,key_cols=[],exceptions=[]):
     """
     df1_indexed = df_original.set_index(key_cols)
     df2_indexed = df_to_integrate.set_index(key_cols)
-
     # Update matching rows for common columns
     common_cols = df1_indexed.columns.intersection(df2_indexed.columns)
     common_cols = [col for col in common_cols if col not in exceptions]
@@ -1347,7 +1348,11 @@ def update_oor():
     #% Edi
     df_edi=rename_columns(df_edi,df_col_rel,table_from='ELP Master',sheet_from='EDI Master')
     df_edi['modelo']=df_edi['modelo'].str.upper()
-
+    df_edi_dup=df_edi[df_edi.duplicated(['po','modelo','LineNumber','dz'],keep=False)]
+    if len(df_edi_dup)>0:
+        msg_oor_update.error("Duplicados en EDI:")
+        st.dataframe(df_edi_dup.sort_values(['po','modelo','LineNumber','dz']))
+        st.stop()
     # Procesar envios al cliente eliminando cantidades negativas. Se conserva la fecha mas nueva de envio.
 
     if not os.path.exists(output_paths['path_ship_cust']):
@@ -1370,7 +1375,11 @@ def update_oor():
     df_ship_elp['po']=df_ship_elp['po'].str.strip()
     df_ship_elp['modelo']=df_ship_elp['modelo'].str.strip()
     df_ship_elp['quantity'].fillna(0,inplace=True)
-
+    df_ship_elp_dup=df_ship_elp[df_ship_elp.duplicated(['po','modelo','box_id','dz'])]
+    if len(df_ship_elp_dup)>0:
+        msg_oor_update.error("Duplicados en ELP Master:")
+        st.dataframe(df_ship_elp_dup)
+        st.stop()    
     # Merge EDI con work orders y embarques
 
     df_edi=df_edi[df_edi['po_date']>pd.to_datetime(state["fecha_freeze"])]
@@ -1448,8 +1457,7 @@ def update_oor():
     df_po_status_cls=df_po_status_cls.groupby(['po']).sum()
     df_po_status_cls.reset_index(inplace=True)
 
-
-    df_po_status=df_po_status_cls[['po','quantity','WO Qty','Shipped to Elp','Shipped to Cust']]
+    # df_po_status=df_po_status_cls[['po','quantity','WO Qty','Shipped to Elp','Shipped to Cust']]
     df_edi_combined.sort_values(['po','modelo','LineNumber','po_date'],inplace=True)
     df_edi_combined.reset_index(drop=True,inplace=True)
     df_edi_combined['Balance to ship']=df_edi_combined['quantity']-df_edi_combined['Shipped to Elp']
@@ -1538,7 +1546,9 @@ def update_oor():
     df_oor=df_oor[df_oor['POUS Date'] >= pd.to_datetime(state["fecha_freeze"])]
 
     #Integrar datos al OOR Anterior
+    msg_oor_update.info("Cargando OOR anterior")
     wb_oor_old=load_workbook(path_oor_old)
+    msg_oor_update.info("Cargado...")
     wb_oor_old._external_links.clear()
     ws_oor_old=wb_oor_old['OOR']
     dict_oor_old=get_worksheet_df(ws_oor_old,'Family')
@@ -1561,6 +1571,7 @@ def update_oor():
     df_oor_to_update[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']].to_excel("df_oor_to_update.xlsx")
     df_oor_old[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']].to_excel("df_oor_old.xlsx")
     df_oor[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']].to_excel("df_oor.xlsx")
+    st.dataframe(df_oor[df_oor.duplicated(key_cols,keep=False)])
     df_oor_to_update=update_dataframe(df_oor_to_update,df_oor.fillna(0),key_cols,exceptions=except_columns)
     df_oor_old=pd.concat([df_oor_old,df_oor_to_update])
     df_oor_old.reset_index(drop=True,inplace=True)
@@ -2550,7 +2561,7 @@ def load_price_list():
 # ----------------------------------------------------------------
 st.session_state.running=False
 st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V42. 2025-05-13</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V43. 2025-05-15</div>", unsafe_allow_html=True)
 st.title("Seguimiento a Embarques")
 
 # Load state and update if needed
