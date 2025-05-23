@@ -1,7 +1,7 @@
 #%%
 import pandas as pd
 import os
-from copy import copy
+from copy import copy, deepcopy
 from importlib import reload
 from manufacturing_plan import *
 from openpyxl import Workbook
@@ -16,7 +16,16 @@ output_paths = set_paths(folder_output)
 col_rel = set_col_rel(output_paths)
 df_col_rel = col_rel['col_rel']
 df_columns=col_rel['columns']
-#%
+
+path_16_wk=file_selectors['16_wk']
+df_16_wk=read_excel(path=path_16_wk)
+df_16_wk=rename_columns(df_16_wk,df_col_rel=df_col_rel,table_from='16 WK')
+wk_cols=[col for col in df_16_wk.columns if 'wk' in col]
+wk_cols=wk_cols[0:5]
+df_16_wk=df_16_wk[['pn','1st_short']+wk_cols]
+df_16_wk['5wkShort']=df_16_wk[wk_cols].sum(axis=1)
+df_16_wk.sort_values(['5wkShort'],inplace=True)
+
 if not os.path.exists(output_paths['path_xl_format']):
     print("No se encuentra el archivo: columns and formatting.xlsx")
     raise SystemExit()
@@ -36,7 +45,7 @@ df_master_doblado.replace('/','_',regex=True,inplace=True)
 path_routing = file_selectors['routing_file']
 df_routing = load_excel_with_header_key(path_routing, sheet_name='Operations', key_text='Routing')
 df_routing = rename_columns(df_routing, df_col_rel, table_from='Routing', sheet_from='Operations')
-#%%
+
 # Equivalencias
 path_equiv = st.session_state.selected_paths['equivalencias_file']
 df_equiv=read_predefined_excel(path_equiv,df_columns,table='Equivalencias')
@@ -71,13 +80,8 @@ df_part_master_orig=df_part_master.copy()
 df_part_master['pn']=df_part_master['pn'].replace(dict_equiv_inv)
 df_part_master=pd.concat([df_part_master_orig,df_part_master])
 df_part_master=df_part_master.drop_duplicates(subset=['pn'],keep='last')
-#%%
-df_part_master[df_part_master['pn'].str.contains('ENC-1500-120-20')]
-#%%
-
-#%%
 df_part_master['pn'].replace(dict_equiv)
-#%%
+
 # df_part_master=get_common_records(df_part_master,df_order_list,keys=['pn'])
 #% Open old plan
 path_plan=output_paths['path_plan']
@@ -90,111 +94,142 @@ df_already_planned=get_common_records(df_new=df_order_list,df_old=df_plan_old,ke
 st.info("Las siguientes ordenes ya estan planeadas, continue si desea agregarlas al nuevo plan")
 st.info(df_already_planned)
 #%%
-machine_status = {}
-assignments = []
 df_order_list.sort_values('priority', inplace=True)
-initial_date   = pd.to_datetime(state['initial_date']).strftime('%Y-%m-%d')
-limit_date_ts  = pd.to_datetime(state['limit_date'])
+df_order_list
 
-for idx, order in df_order_list.iterrows():
-    pn_orig        = order['pn_orig']
-    pn             = order['pn']
-    qty            = order['pzas_x_hacer']
-    wo             = order['wo']
-    pty            = order['priority']
-    machine_default= order['machine']
-    routing_name   = order['operation_description']
+#%%
+# helper to iterate business‐day calendar
+def bdate_range_str(start, end):
+    return [d.strftime('%Y-%m-%d') 
+            for d in pd.bdate_range(start=start, end=end)]
+initial_date_str = pd.to_datetime(state['initial_date']).strftime('%Y-%m-%d')
+limit_date_ts    = pd.to_datetime(state['limit_date'])
+all_dates = bdate_range_str(initial_date_str, limit_date_ts.strftime('%Y-%m-%d'))
+machines = set(m for _, m in dict_avail_hours.keys())
+slots = {}
+for avail_dt in all_dates:
+    for m in machines:
+        dict_avail_hours_copy=deepcopy(dict_avail_hours)
+        slots[(avail_dt, m)]=dict_avail_hours_copy.get((avail_dt, m),dict_avail_hours_copy.get(('default',m)))
 
-    # routing lookup
-    pn_info = df_routing[(df_routing['pn']==pn) & (df_routing['operation_description']==routing_name)]
+# 2) Prepare
+assignments    = []
+pn_to_machine  = {}    # first‐machine lock per PN
+wo_next_start  = {}    # earliest allowed timestamp per WO
+machine_status = {}
+df_order_list.sort_values('priority', inplace=True)
+
+# prebuild full set of dates we may need
+# 3) Process each order
+for _, order in df_order_list.iterrows():
+    pn_orig       = order['pn_orig']
+    pn            = order['pn']
+    qty           = order['pzas_x_hacer']
+    wo            = order['wo']
+    routing_name  = order['operation_description']
+    machine_def   = order['machine']
+    pty           = order['priority']
+
+    # routing info
+    pn_info = df_routing[
+        (df_routing['pn']==pn) & 
+        (df_routing['operation_description']==routing_name)
+    ]
     if pn_info.empty:
-        pn_info = df_routing[(df_routing['pn']==pn_orig) & (df_routing['operation_description']==routing_name)]
+        pn_info = df_routing[
+            (df_routing['pn']==pn_orig) & 
+            (df_routing['operation_description']==routing_name)
+        ]
         if pn_info.empty:
             continue
-    run_time   = pn_info.iloc[0]['run_time']
-    setup_time = pn_info.iloc[0]['setup_time']
+    run_time, setup_time = pn_info.iloc[0][['run_time','setup_time']]
 
-    # machine selection
-    if machine_default:
-        machines = [machine_default]
+    # select machine
+    if machine_def:
+        m_list = [machine_def]
+    elif pn in pn_to_machine:
+        m_list = [pn_to_machine[pn]]
     else:
         rows = df_master_doblado[df_master_doblado['pn']==pn]
         if rows.empty:
             rows = df_master_doblado[df_master_doblado['pn']==pn_orig]
             if rows.empty:
                 continue
-        machines = [v for k,v in rows.iloc[0].items() if 'maq_opc' in k and v]
+        m_list = [v for k,v in rows.iloc[0].items() if 'maq_opc' in k and v]
 
-    # init status
-    for m in machines:
-        if m not in machine_status:
-            key = (initial_date, m)
-            if key not in dict_avail_hours and ('default',m) not in dict_avail_hours:
-                print(f"Falta definir horas disponibles en la maquina {m}")
-                raise SystemExit()
-            base = dict_avail_hours.get(key, dict_avail_hours[('default',m)])
-            machine_status[m] = {
-                'date':    initial_date,
-                'avail':   copy(base),
-                'last_pn': None
-            }
+    # determine earliest start
+    start_ts = wo_next_start.get(wo, pd.to_datetime(initial_date_str))
 
-    if not machines:
-        print(f"Favor de asignar maquina al PN: {pn}")
-        raise SystemExit()
+    # assignment loop
+    for m in m_list:
+        # lock PN → machine on first assignment
+        if pn not in pn_to_machine:
+            pn_to_machine[pn] = m
 
-    # assignment per machine
-    for m in machines:
-        while qty > 0:
-            current = pd.to_datetime(machine_status[m]['date'])
-            if current > limit_date_ts:
+        # walk through dates until qty is 0 or we pass limit
+        for date_str in all_dates:
+            if qty <= 0:
                 break
-            assigned = False
-            # iterate shifts in order
-            for shift, avail in machine_status[m]['avail'].items():
-                # decide setup
-                setup = setup_time if machine_status[m]['last_pn']!=pn else 0
-                # max pieces this shift
-                if run_time>0:
-                    max_pieces = int((avail - setup)//run_time) if avail>=setup+run_time else 0
-                else:
-                    max_pieces = qty
-                if max_pieces<=0:
-                    machine_status[m]['avail'][shift] = 0
-                    continue  # not enough room
-                pieces = min(max_pieces, qty)
-                run_used = pieces*run_time
-                total_used = run_used + setup
-                # perform assignment
+            date_ts = pd.to_datetime(date_str)
+            if date_ts < start_ts.normalize():
+                continue
+            if date_ts > limit_date_ts:
+                break
+
+            # get or init that day’s shifts
+            key = (date_str, m)
+            if key in slots:
+                avail_shifts = slots[key]
+
+
+            # iterate shifts in sorted order
+            for shift in sorted(avail_shifts):
+                if qty <= 0:
+                    break
+
+                # compute setup only if PN changed vs last service on this machine
+                last_pn = machine_status.get((m,'last_pn'), None)
+                need_setup = setup_time if last_pn != pn else 0
+                # can we fit setup+one run?
+                if avail_shifts[shift] < need_setup + run_time:
+                    avail_shifts[shift] = 0
+                    continue
+
+                # assign as many as fit this slot
+                effective = avail_shifts[shift] - need_setup
+                pieces   = qty if run_time==0 else min(qty, effective // run_time)
+                run_used = pieces * run_time
+                total    = run_used + need_setup
+
+                # record it
                 assignments.append({
-                    'date':  machine_status[m]['date'],
+                    'date': date_str,
                     'machine': m,
                     'shift': shift,
                     'operation_description': routing_name,
-                    'pn':    pn_orig,
-                    'wo':    wo,
+                    'pn': pn_orig,
+                    'wo': wo,
                     'priority': pty,
                     'pzas_x_hacer': pieces,
-                    'time_used':    run_used,
-                    'setup_time':   setup
+                    'time_used': run_used,
+                    'setup_time': need_setup
                 })
-                # update status
-                machine_status[m]['avail'][shift] -= total_used
-                machine_status[m]['last_pn'] = pn
+
+                # update slot availability
+                avail_shifts[shift] -= total
                 qty -= pieces
-                assigned = True
-                break
-            if not assigned:
-                # advance to next day
-                nd = (current + BDay(1)).strftime('%Y-%m-%d')
-                machine_status[m]['date']  = nd
-                key = (nd, m)
-                base = dict_avail_hours.get(key, dict_avail_hours[('default',m)])
-                machine_status[m]['avail'] = copy(base)
-            if qty==0:
-                break
-        if qty==0:
-            break
+                # track last_pn for setup logic
+                machine_status[(m,'last_pn')] = pn
+                # compute finish timestamp to enforce sequencing
+                finish_ts = date_ts  # + shift end offset if you track that
+                # wo_next_start[wo] = max(wo_next_start.get(wo, date_ts), finish_ts)
+                wo_next_start[wo] = finish_ts + BDay(1)
+
+            # end for shift
+        # end for date
+
+        break  # once we’ve tried this machine, stop (PN locked)
+
 
 df_plan_new=get_predefined_df(df_columns=df_columns,table='Manufacturing plan')
 df_plan_new = pd.concat([df_plan_new,pd.DataFrame(assignments)],ignore_index=True)
@@ -203,10 +238,6 @@ df_plan_new['pzas_x_hora']=(df_plan_new['pzas_x_hacer']/df_plan_new['time_used']
 df_plan_old=df_plan_old[~df_plan_old['status'].isnull()]
 df_plan_old=append_df_to_df(df_new=df_plan_new,df_old=df_plan_old,table='Manufacturing plan',keys=['wo','pn'],allow_duplicates=True)
 
-#%%
-#%%
-df_part_master
-#%%
 if 'unit_selling_price' in df_plan_old.columns:
     df_plan_old.drop(columns=['unit_selling_price'],inplace=True)
 df_plan_old=df_plan_old.merge(df_part_master,on='pn',how='left')    
@@ -218,7 +249,6 @@ df_plan_old['date']=pd.to_datetime(df_plan_old['date'],format='mixed').dt.strfti
 df_plan_old=rename_columns(df_plan_old,df_col_rel=df_col_rel,table_to='Manufacturing plan')
 df_plan_old.to_excel(path_plan,index=False)
 os.startfile(path_plan)
-#%%
 #%%
 df_plan_old=rename_columns(df_plan_old,df_col_rel=st.session_state.df_col_rel,table_from='Manufacturing plan')    
 #% Reportes
