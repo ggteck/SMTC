@@ -1,5 +1,8 @@
 """
 Manufacturing plan
+- V12. 2025-05-25
+    - Se corrige la rutina de asignacion
+    - Se agrega sugerencia de prioridades
 - V11. 2025-05-12
     - Cambio mayor en la rutina de asignacion, se realiza por slots para poder programar ordenes con diferentes doblados dependientes uno del otro
 - V10. 2025-05-12
@@ -385,6 +388,61 @@ def get_common_records(df_new=pd.DataFrame(),df_old=pd.DataFrame(),keys=[],how='
 # Main Functions
 # =============================================================================
 
+def orders_priority():
+    path_order_list_proposed=os.path.join(state['folder_output'],'Lista de Ordenes sugerida.xlsx')
+    path_sales = st.session_state.selected_paths['sales']
+    path_end_of_period = st.session_state.selected_paths['end_of_period']
+    path_16_wk = st.session_state.selected_paths['16_wk']
+    msg_orders_priority=st.empty()
+    if not path_16_wk:
+        msg_orders_priority.error("Seleccionar 16 wk")
+        st.stop()
+    if not path_sales:
+        msg_orders_priority.error("Seleccionar Top ventas")
+        st.stop()
+    if not path_end_of_period:
+        msg_orders_priority.error("Seleccionar End of period")
+        st.stop()        
+
+    close_xl_if_open(path_order_list_proposed)
+    df_columns=st.session_state.df_columns
+    df_col_rel=st.session_state.df_col_rel
+    df_16_wk=read_excel(path=path_16_wk)
+    df_16_wk=rename_columns(df_16_wk,df_col_rel=df_col_rel,table_from='16 WK')
+    df_16_wk['pn']=df_16_wk['pn'].astype(str)
+    df_16_wk=df_16_wk[df_16_wk['wk5']<0]
+    df_16_wk.sort_values(['wk5'],inplace=True)
+    # Sales
+    df_sales=read_excel(path_sales)
+    df_sales=rename_columns(df_sales,df_col_rel,table_from="Top ventas")
+    df_sales['pn']=df_sales['pn'].astype(str)
+    df_sales = (
+        df_sales
+        .dropna(subset=['pn'])
+        .sort_values('tot_value', ascending=False)
+    )
+    df_sales['cumperc'] = df_sales['tot_value'].cumsum() / df_sales['tot_value'].sum()
+    cut_idx = df_sales['cumperc'].gt(0.8).idxmax()
+    df_sales = df_sales.loc[:cut_idx]
+
+    # End of period
+    df_end_of_period=load_excel_with_header_key(file_path=path_end_of_period,key_text='Report Date')
+    df_end_of_period=rename_columns(df_end_of_period,df_col_rel=df_col_rel,table_from='End of Period')
+    df_end_of_period['pn']=df_end_of_period['pn'].astype(str)
+    df_end_of_period=df_end_of_period.merge(df_16_wk[['pn','wk5']],how='left',on='pn')
+    df_end_of_period=df_end_of_period.merge(df_sales[['pn','tot_value']],how='left',on='pn')
+    df_order_list_proposed=df_end_of_period[['pn','wo','pzas_x_hacer','wk5','tot_value','create_wo']].sort_values(by=['wk5','tot_value','create_wo','pn'],ascending=[True,True,False,True])
+    df_order_list_proposed.reset_index(inplace=True,drop=True)
+    df_order_list_proposed.reset_index(inplace=True,names='priority')
+    df_order_list_proposed['machine']=''
+    df_order_list_proposed['operation_description']=''
+    df_order_list_proposed['status']=''
+    df_order_list_proposed = df_order_list_proposed.loc[:, ~df_order_list_proposed.columns.duplicated(keep='last')]
+    df_order_list_proposed=rename_columns(df_order_list_proposed,df_col_rel=df_col_rel,table_from='End of Period',table_to='Lista de ordenes')
+    df_order_list_proposed=df_order_list_proposed[df_columns.loc[df_columns['table']=='Lista de ordenes','column_name'].to_list()]
+    df_order_list_proposed.to_excel(path_order_list_proposed,index=False)    
+    os.startfile(path_order_list_proposed)
+
 def verify_order_list():
     df_columns=st.session_state.df_columns
     df_col_rel=st.session_state.df_col_rel
@@ -437,23 +495,31 @@ def create_plan():
     check_mandatory_columns_df(df_master_doblado.columns,df_columns=df_columns,table='Master Doblado',sheet='00. Formato para Master de WC')
     df_master_doblado = rename_columns(df_master_doblado, st.session_state.df_col_rel, table_from='Master Doblado', sheet_from='00. Formato para Master de WC')
     df_master_doblado.replace('/','_',regex=True,inplace=True)
+    df_master_doblado['pn']=df_master_doblado['pn'].astype(str)
 
     path_routing = st.session_state.selected_paths['routing_file']
     df_routing = load_excel_with_header_key(path_routing, sheet_name='Operations', key_text='Routing')
     df_routing = rename_columns(df_routing, st.session_state.df_col_rel, table_from='Routing', sheet_from='Operations')
+    df_routing['operation_description']=df_routing['operation_description'].str.upper()
+    df_routing['pn']=df_routing['pn'].astype(str)
 
     # Equivalencias
     path_equiv = st.session_state.selected_paths['equivalencias_file']
     df_equiv=read_predefined_excel(path_equiv,df_columns,table='Equivalencias')
+    df_equiv['pn']=df_equiv['pn'].astype(str)
     dict_equiv=df_equiv.set_index('pn')['equivalencia'].to_dict()
     dict_equiv_inv={v: k for k, v in dict_equiv.items()}
     # Lista de ordenes
     path_order_list = st.session_state.selected_paths['order_file']
     df_order_list = load_excel_with_header_key(path_order_list, key_text='Priority')
     df_order_list = rename_columns(df_order_list, st.session_state.df_col_rel, table_from='Lista de ordenes')
+    df_order_list['pn']=df_order_list['pn'].astype(str)
+    df_order_list['operation_description'].fillna('DOBLADO',inplace=True)
+    df_order_list.loc[df_order_list['operation_description']=='','operation_description']='DOBLADO'
     st.session_state.df_order_list=df_order_list
     df_order_list['pn_orig']=df_order_list['pn']
     df_order_list['pn']=df_order_list['pn'].replace(dict_equiv)
+    df_order_list['operation_description']=df_order_list['operation_description'].str.upper()
     # Missing routings or machine definition alert
     #df_missing_rout=get_common_records(df_order_list,df_routing,keys=['pn','operation_description'],how='uncommon')
     df_order_list['composite_key'] = list(zip(*(df_order_list[col] for col in ['pn','operation_description'])))
@@ -469,11 +535,11 @@ def create_plan():
     df_order_list.drop(columns=['composite_key'],inplace=True)
 
     if len(df_missing_rout)>0:
-        msg_create_plan.error("Falta definir router para las lineas:")
+        st.error("Falta definir router para las lineas:")
         st.dataframe(df_missing_rout)
         # st.stop()
     if len(df_missing_machine)>0:
-        msg_create_plan.error("Falta definir maquina para la lineas:")
+        st.error("Falta definir maquina para la lineas:")
         st.dataframe(df_missing_machine)
         # st.stop()
 
@@ -510,6 +576,7 @@ def create_plan():
     assignments    = []
     pn_to_machine  = {}    # first‐machine lock per PN
     wo_next_start  = {}    # earliest allowed timestamp per WO
+    wo_last_machine = {}    # last machine used per WO
     machine_status = {}
     df_order_list.sort_values('priority', inplace=True)
 
@@ -552,8 +619,14 @@ def create_plan():
             m_list = [v for k,v in rows.iloc[0].items() if 'maq_opc' in k and v]
 
         # determine earliest start
-        start_ts = wo_next_start.get(wo, pd.to_datetime(initial_date_str))
-
+        initial_start={"finish_ts":pd.to_datetime(initial_date_str)}
+        start_ts = wo_next_start.get(wo, initial_start)
+        start_ts = start_ts.get("finish_ts")
+        start_shift = wo_next_start.get(wo, initial_start)
+        start_shift = start_shift.get("next_shift","PRIMER TURNO")
+        # start_ts = start_ts.get("finish_ts")
+        last_m   = wo_last_machine.get(wo)
+        
         # assignment loop
         for m in m_list:
             # lock PN → machine on first assignment
@@ -565,8 +638,11 @@ def create_plan():
                 if qty <= 0:
                     break
                 date_ts = pd.to_datetime(date_str)
-                if date_ts < start_ts.normalize():
-                    continue
+                # if date_ts < start_ts.normalize():
+                #     continue
+                if last_m is None or m != last_m:
+                    if date_ts < start_ts.normalize():
+                        continue                
                 if date_ts > limit_date_ts:
                     break
 
@@ -588,10 +664,16 @@ def create_plan():
                     if avail_shifts[shift] < need_setup + run_time:
                         avail_shifts[shift] = 0
                         continue
-
+                    shifts_list=list(avail_shifts.keys())
+                    if (date_ts == start_ts.normalize())&\
+                        (shifts_list.index(start_shift)>shifts_list.index(shift))&\
+                        (last_m is None or m != last_m):
+                        continue
                     # assign as many as fit this slot
                     effective = avail_shifts[shift] - need_setup
                     pieces   = qty if run_time==0 else min(qty, effective // run_time)
+                    if pieces<10:
+                        continue
                     run_used = pieces * run_time
                     total    = run_used + need_setup
 
@@ -616,8 +698,20 @@ def create_plan():
                     machine_status[(m,'last_pn')] = pn
                     # compute finish timestamp to enforce sequencing
                     finish_ts = date_ts  # + shift end offset if you track that
-                    # wo_next_start[wo] = max(wo_next_start.get(wo, date_ts), finish_ts)
-                    wo_next_start[wo] = finish_ts + BDay(1)
+                    # bump next‐start only when changing machines
+                    if last_m is None or m != last_m:
+                        shifts_list=list(avail_shifts.keys())
+                        shidx=shifts_list.index(shift)
+                        if len(shifts_list)>shidx+1:
+                            next_shift=shifts_list[shidx+1]
+                        else:
+                            finish_ts=finish_ts + BDay(1)
+                            next_shift=shifts_list[0]                
+                        next_start={"finish_ts":finish_ts,
+                                    "next_shift":next_shift}
+                        wo_next_start[wo] = next_start
+                    # record this machine as last used for the WO
+                    wo_last_machine[wo] = m
 
                 # end for shift
             # end for date
@@ -625,6 +719,9 @@ def create_plan():
             break  # once we’ve tried this machine, stop (PN locked)
 
     df_plan_new=get_predefined_df(df_columns=df_columns,table='Manufacturing plan')
+    if len(assignments)==0:
+        msg_create_plan.error("No se lograron asignar ordenes, revise errores previos")
+        st.stop()
     df_plan_new = pd.concat([df_plan_new,pd.DataFrame(assignments)],ignore_index=True)
     df_plan_new.sort_values(['date', 'machine', 'shift', 'priority', 'wo'], inplace=True)
     df_plan_new['pzas_x_hora']=(df_plan_new['pzas_x_hacer']/df_plan_new['time_used']).astype(float).round(2)
@@ -681,6 +778,7 @@ def generate_reports():
         df=df_plan_old[df_plan_old[machine_col]==machine].copy()
         if len(df)==0:
             continue
+        df.loc[df['Operacion']=='DOBLADO','Operacion']=''
         wb = Workbook()
         ws = wb.active
         ws.title = 'Report'
@@ -733,7 +831,7 @@ def generate_reports():
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         wb.save(f"{base} {machine} {timestamp}{ext}")
     msg_generate_reports.success("Reportes listos")
-
+ 
 
 def validate_plan():
     #% Validar plan
@@ -824,7 +922,8 @@ else:
 st.header("Seleccion de archivos")
 file_selectors = [
     ("16_wk", "16Wk Gap"),
-    ("isar", "ISAR"),
+    ("sales", "Top ventas"),
+    ("end_of_period", "End Of Period"),
     ("master_file", "Master Doblado"),
     ("equivalencias_file", "Equivalencias"),
     ("order_file", "Lista de Ordenes"),
@@ -837,6 +936,10 @@ for selector_key, display_label in file_selectors:
 
 
 st.header("Crear Plan")
+
+if st.button("Sugerir prioridades"):
+    orders_priority()
+
 if st.button("Verificar ordenes"):
     verify_order_list()
 

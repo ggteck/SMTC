@@ -16,15 +16,7 @@ output_paths = set_paths(folder_output)
 col_rel = set_col_rel(output_paths)
 df_col_rel = col_rel['col_rel']
 df_columns=col_rel['columns']
-
-path_16_wk=file_selectors['16_wk']
-df_16_wk=read_excel(path=path_16_wk)
-df_16_wk=rename_columns(df_16_wk,df_col_rel=df_col_rel,table_from='16 WK')
-wk_cols=[col for col in df_16_wk.columns if 'wk' in col]
-wk_cols=wk_cols[0:5]
-df_16_wk=df_16_wk[['pn','1st_short']+wk_cols]
-df_16_wk['5wkShort']=df_16_wk[wk_cols].sum(axis=1)
-df_16_wk.sort_values(['5wkShort'],inplace=True)
+#%%
 
 if not os.path.exists(output_paths['path_xl_format']):
     print("No se encuentra el archivo: columns and formatting.xlsx")
@@ -41,11 +33,12 @@ path_master_doblado = file_selectors['master_file']
 df_master_doblado = load_excel_with_header_key(path_master_doblado, sheet_name='00. Formato para Master de WC', key_text='PN')
 df_master_doblado = rename_columns(df_master_doblado, df_col_rel, table_from='Master Doblado', sheet_from='00. Formato para Master de WC')
 df_master_doblado.replace('/','_',regex=True,inplace=True)
+df_master_doblado['pn']=df_master_doblado['pn'].astype(str)
 #%
 path_routing = file_selectors['routing_file']
 df_routing = load_excel_with_header_key(path_routing, sheet_name='Operations', key_text='Routing')
 df_routing = rename_columns(df_routing, df_col_rel, table_from='Routing', sheet_from='Operations')
-
+df_routing['operation_description']=df_routing['operation_description'].str.upper()
 # Equivalencias
 path_equiv = st.session_state.selected_paths['equivalencias_file']
 df_equiv=read_predefined_excel(path_equiv,df_columns,table='Equivalencias')
@@ -55,6 +48,7 @@ dict_equiv_inv={v: k for k, v in dict_equiv.items()}
 path_order_list = file_selectors['order_file']
 df_order_list = load_excel_with_header_key(path_order_list, key_text='Priority')
 df_order_list = rename_columns(df_order_list, df_col_rel, table_from='Lista de ordenes')
+df_order_list['operation_description']=df_order_list['operation_description'].str.upper()
 df_order_list['pn_orig']=df_order_list['pn']
 df_order_list['pn']=df_order_list['pn'].replace(dict_equiv)
 check_mandatory_columns_df(df_order_list.columns,df_columns=df_columns,table='Lista de ordenes')
@@ -93,9 +87,6 @@ df_plan_old=df_plan_old[~df_plan_old['status'].isna()]
 df_already_planned=get_common_records(df_new=df_order_list,df_old=df_plan_old,keys=['wo','pn'])
 st.info("Las siguientes ordenes ya estan planeadas, continue si desea agregarlas al nuevo plan")
 st.info(df_already_planned)
-#%%
-df_order_list.sort_values('priority', inplace=True)
-df_order_list
 
 #%%
 # helper to iterate business‐day calendar
@@ -116,6 +107,7 @@ for avail_dt in all_dates:
 assignments    = []
 pn_to_machine  = {}    # first‐machine lock per PN
 wo_next_start  = {}    # earliest allowed timestamp per WO
+wo_last_machine = {}    # last machine used per WO
 machine_status = {}
 df_order_list.sort_values('priority', inplace=True)
 
@@ -158,8 +150,14 @@ for _, order in df_order_list.iterrows():
         m_list = [v for k,v in rows.iloc[0].items() if 'maq_opc' in k and v]
 
     # determine earliest start
-    start_ts = wo_next_start.get(wo, pd.to_datetime(initial_date_str))
-
+    initial_start={"finish_ts":pd.to_datetime(initial_date_str)}
+    start_ts = wo_next_start.get(wo, initial_start)
+    start_ts = start_ts.get("finish_ts")
+    start_shift = wo_next_start.get(wo, initial_start)
+    start_shift = start_shift.get("next_shift","PRIMER TURNO")
+    # start_ts = start_ts.get("finish_ts")
+    last_m   = wo_last_machine.get(wo)
+    
     # assignment loop
     for m in m_list:
         # lock PN → machine on first assignment
@@ -171,8 +169,11 @@ for _, order in df_order_list.iterrows():
             if qty <= 0:
                 break
             date_ts = pd.to_datetime(date_str)
-            if date_ts < start_ts.normalize():
-                continue
+            # if date_ts < start_ts.normalize():
+            #     continue
+            if last_m is None or m != last_m:
+                if date_ts < start_ts.normalize():
+                    continue                
             if date_ts > limit_date_ts:
                 break
 
@@ -194,10 +195,16 @@ for _, order in df_order_list.iterrows():
                 if avail_shifts[shift] < need_setup + run_time:
                     avail_shifts[shift] = 0
                     continue
-
+                shifts_list=list(avail_shifts.keys())
+                if (date_ts == start_ts.normalize())&\
+                    (shifts_list.index(start_shift)>shifts_list.index(shift))&\
+                    (last_m is None or m != last_m):
+                    continue
                 # assign as many as fit this slot
                 effective = avail_shifts[shift] - need_setup
                 pieces   = qty if run_time==0 else min(qty, effective // run_time)
+                if pieces<10:
+                    continue
                 run_used = pieces * run_time
                 total    = run_used + need_setup
 
@@ -222,8 +229,20 @@ for _, order in df_order_list.iterrows():
                 machine_status[(m,'last_pn')] = pn
                 # compute finish timestamp to enforce sequencing
                 finish_ts = date_ts  # + shift end offset if you track that
-                # wo_next_start[wo] = max(wo_next_start.get(wo, date_ts), finish_ts)
-                wo_next_start[wo] = finish_ts + BDay(1)
+                # bump next‐start only when changing machines
+                if last_m is None or m != last_m:
+                    shifts_list=list(avail_shifts.keys())
+                    shidx=shifts_list.index(shift)
+                    if len(shifts_list)>shidx+1:
+                        next_shift=shifts_list[shidx+1]
+                    else:
+                        finish_ts=finish_ts + BDay(1)
+                        next_shift=shifts_list[0]                
+                    next_start={"finish_ts":finish_ts,
+                                "next_shift":next_shift}
+                    wo_next_start[wo] = next_start
+                # record this machine as last used for the WO
+                wo_last_machine[wo] = m
 
             # end for shift
         # end for date
@@ -349,3 +368,52 @@ df_order_assignment.to_excel(path_order_list,index=False)
 df_plan.loc[df_plan['status'].isna(),'status']='Planeada'
 df_plan.to_excel(path_plan,sheet_name='Manufacturing plan',index=False)
 
+#%%
+# %%
+# path_isar=file_selectors['isar']
+# df_isar=read_excel(path=path_isar)
+# df_isar=rename_columns(df_isar,df_col_rel=df_col_rel,table_from='ISAR')
+# df_isar['wo'].fillna('',inplace=True)
+# df_isar[(df_isar.duplicated(['wo','pn'],keep=False))&(df_isar['wo']!='')&(df_isar['wo']!='Planned')]
+#%% 16 wk
+path_16_wk=file_selectors['16_wk']
+df_16_wk=read_excel(path=path_16_wk)
+df_16_wk=rename_columns(df_16_wk,df_col_rel=df_col_rel,table_from='16 WK')
+df_16_wk['pn']=df_16_wk['pn'].astype(str)
+df_16_wk=df_16_wk[df_16_wk['wk5']<0]
+df_16_wk.sort_values(['wk5'],inplace=True)
+# Sales
+path_sales=file_selectors['sales']
+df_sales=read_excel(path_sales)
+df_sales=rename_columns(df_sales,df_col_rel,table_from="Top ventas")
+df_sales['pn']=df_sales['pn'].astype(str)
+df_sales = (
+    df_sales
+    .dropna(subset=['pn'])
+    .sort_values('tot_value', ascending=False)
+)
+df_sales['cumperc'] = df_sales['tot_value'].cumsum() / df_sales['tot_value'].sum()
+cut_idx = df_sales['cumperc'].gt(0.8).idxmax()
+df_sales = df_sales.loc[:cut_idx]
+
+path_end_of_period=file_selectors['end_of_period']
+df_end_of_period=load_excel_with_header_key(file_path=path_end_of_period,key_text='Report Date')
+df_end_of_period=rename_columns(df_end_of_period,df_col_rel=df_col_rel,table_from='End of Period')
+#%%
+df_end_of_period['pn']=df_end_of_period['pn'].astype(str)
+df_end_of_period=df_end_of_period.merge(df_16_wk[['pn','wk5']],how='left',on='pn')
+df_end_of_period=df_end_of_period.merge(df_sales[['pn','tot_value']],how='left',on='pn')
+df_order_list_proposed=df_end_of_period[['pn','wo','pzas_x_hacer','wk5','tot_value','create_wo']].sort_values(by=['wk5','tot_value','create_wo','pn'])
+df_order_list_proposed.reset_index(inplace=True,drop=True)
+df_order_list_proposed.reset_index(inplace=True,names='priority')
+df_order_list_proposed['machine']=''
+df_order_list_proposed['operation_description']=''
+df_order_list_proposed['status']=''
+df_order_list_proposed = df_order_list_proposed.loc[:, ~df_order_list_proposed.columns.duplicated(keep='last')]
+df_order_list_proposed=rename_columns(df_order_list_proposed,df_col_rel=df_col_rel,table_from='End of Period',table_to='Lista de ordenes')
+df_order_list_proposed=df_order_list_proposed[df_columns.loc[df_columns['table']=='Lista de ordenes','column_name'].to_list()]
+df_order_list_proposed.to_excel(os.path.join(state['folder_output'],'Lista de Ordenes.xlsx'))
+#%%
+df_plan_new=get_predefined_df(df_columns=df_columns,table='Manufacturing plan')
+#%%%
+df_plan_new.columns
