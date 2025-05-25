@@ -891,7 +891,7 @@ st.session_state.dict_formats=get_xl_formatting()
 
 
 st.set_page_config(page_title="Plan de manufactura", page_icon=":factory:")
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V11. 2025-05-12</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V12. 2025-05-25</div>", unsafe_allow_html=True)
 st.markdown(
     r"""
     <style>
