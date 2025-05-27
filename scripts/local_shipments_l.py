@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V44. 2025-05-26
+    - Se convierten cantidades a numero en el edi
 - V43. 2025-05-15
     - Se agrega verificacion de duplicados en la actualizacion del oor en caso de que no corra antes la actualiacion de Edi
 - V42. 2025-05-13
@@ -1220,8 +1222,10 @@ def update_edi():
         df_korrus_data_new=df_korrus_data_new.loc[:, ~df_korrus_data_new.columns.str.startswith('Unnamed:')]
         df_korrus_data_new=df_korrus_data_new[~df_korrus_data_new['PurchaseOrder'].str.contains('---')]
         df_korrus_data_new['PODate']=pd.to_datetime(df_korrus_data_new['PODate'],format='mixed', errors='coerce')
-        df_korrus_data_new['LineNumber']=df_korrus_data_new['LineNumber'].astype(int)
-        df_korrus_data_new['AssignedDropZone'].fillna('NULL',inplace=True)
+        df_korrus_data_new['LineNumber'] = pd.to_numeric(df_korrus_data_new['LineNumber'], errors='coerce').fillna(0).astype(float).astype(int)
+        df_korrus_data_new['Quantity'] = pd.to_numeric(df_korrus_data_new['Quantity'], errors='coerce').fillna(0).astype(float).astype(int)
+        df_korrus_data_new['price'] = pd.to_numeric(df_korrus_data_new['price'], errors='coerce').fillna(0).astype(float)
+        df_korrus_data_new['AssignedDropZone'].fillna('NULL',inplace=True) 
         df_korrus_data_new['ProductServiceID']=df_korrus_data_new['ProductServiceID'].str.upper()
 
         key_korrus=['PurchaseOrder','LineNumber','PODate','ProductServiceID','AssignedDropZone']
@@ -2561,7 +2565,7 @@ def load_price_list():
 # ----------------------------------------------------------------
 st.session_state.running=False
 st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V43. 2025-05-15</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V44. 2025-05-26</div>", unsafe_allow_html=True)
 st.title("Seguimiento a Embarques")
 
 # Load state and update if needed
