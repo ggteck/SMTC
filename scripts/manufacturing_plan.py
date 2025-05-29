@@ -1,5 +1,7 @@
 """
 Manufacturing plan
+- V13. 2025-05-28
+    - Se filtra SVT del 16 WK
 - V12. 2025-05-25
     - Se corrige la rutina de asignacion
     - Se agrega sugerencia de prioridades
@@ -410,6 +412,7 @@ def orders_priority():
     df_16_wk=read_excel(path=path_16_wk)
     df_16_wk=rename_columns(df_16_wk,df_col_rel=df_col_rel,table_from='16 WK')
     df_16_wk['pn']=df_16_wk['pn'].astype(str)
+    df_16_wk=df_16_wk[~df_16_wk['site'].str.contains('SVT')]
     df_16_wk=df_16_wk[df_16_wk['wk5']<0]
     df_16_wk.sort_values(['wk5'],inplace=True)
     # Sales
@@ -428,6 +431,7 @@ def orders_priority():
     # End of period
     df_end_of_period=load_excel_with_header_key(file_path=path_end_of_period,key_text='Report Date')
     df_end_of_period=rename_columns(df_end_of_period,df_col_rel=df_col_rel,table_from='End of Period')
+    df_end_of_period=df_end_of_period[~df_end_of_period['site_code'].str.contains('SVT')]
     df_end_of_period['pn']=df_end_of_period['pn'].astype(str)
     df_end_of_period=df_end_of_period.merge(df_16_wk[['pn','wk5']],how='left',on='pn')
     df_end_of_period=df_end_of_period.merge(df_sales[['pn','tot_value']],how='left',on='pn')

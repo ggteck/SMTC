@@ -380,8 +380,14 @@ path_16_wk=file_selectors['16_wk']
 df_16_wk=read_excel(path=path_16_wk)
 df_16_wk=rename_columns(df_16_wk,df_col_rel=df_col_rel,table_from='16 WK')
 df_16_wk['pn']=df_16_wk['pn'].astype(str)
+df_16_wk=df_16_wk[~df_16_wk['site'].str.contains('SVT')]
 df_16_wk=df_16_wk[df_16_wk['wk5']<0]
 df_16_wk.sort_values(['wk5'],inplace=True)
+#%%
+df_16_wk['site'].drop_duplicates()
+#%%
+file_selectors
+#%%
 # Sales
 path_sales=file_selectors['sales']
 df_sales=read_excel(path_sales)
