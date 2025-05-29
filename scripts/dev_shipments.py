@@ -147,12 +147,14 @@ for file in prices_files_lst:
         continue
     filepath=os.path.join(folder_prices,file)
     close_xl_if_open(filepath)
-    if 'ACCESSORIES' in file:
+    if 'MASTER PRICE LIST ACCESSORIES' in file.upper():
         df=load_excel_with_header_key(filepath,key_text='Site')
         df=rename_columns(df,df_col_rel=df_col_rel,table_from='Price accessories')
-    else:
+    elif (('MASTER PRICE' in file.upper()) & ('ACCESSORIES' not in file.upper())):
         df=load_excel_with_header_key(filepath,key_text='Final SKU')
         df=rename_columns(df,df_col_rel=df_col_rel,table_from='Prices fixtures')
+    else:
+        continue
     df=df[['modelo','price']]
     df_prices=pd.concat([df_prices,df])
 df_prices.drop_duplicates(['modelo'],inplace=True)

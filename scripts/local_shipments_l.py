@@ -1,5 +1,8 @@
 """
 # Seguimiento a embarques
+- V45. 2025-05-28
+    - Correccion en la integracion de precios
+    - Reporte de ordenes no encontradas en el EDI
 - V44. 2025-05-26
     - Se convierten cantidades a numero en el edi
 - V43. 2025-05-15
@@ -1292,6 +1295,14 @@ def update_edi():
         df_ship_elp['shipment_date_elp']=pd.to_datetime(df_ship_elp['shipment_date_elp'], errors='coerce').dt.strftime('%m/%d/%Y')
         df_ship_elp=set_family(df_ship_elp,column='modelo',dest_col='family')
         df_ship_elp=rename_columns(df_ship_elp,df_col_rel=df_col_rel,table_to='ELP Master',sheet_to='Shipment to ELP')
+        dfa=df_ship_elp[['PO','PN']].copy()
+        dfb=df_edi[['PO','ProductService ID']].copy()
+        dfa['composite_key'] = list(zip(*(dfa[col].str.upper().str.strip() for col in dfa.columns)))
+        dfb['composite_key'] = list(zip(*(dfb[col].str.upper().str.strip() for col in dfb.columns)))
+        dfa=dfa[~dfa['composite_key'].isin(dfb['composite_key'])]
+        if len(dfa)>0:
+            st.warning("Las siguiente ordenes de ELP Master no se encuentran en el EDI")
+            st.dataframe(dfa.drop(columns=['composite_key']))
 
     # Ordenes Canceladas   
     msg_edi_update.info("Integrando Ordenes canceladas")
@@ -1575,7 +1586,6 @@ def update_oor():
     df_oor_to_update[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']].to_excel("df_oor_to_update.xlsx")
     df_oor_old[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']].to_excel("df_oor_old.xlsx")
     df_oor[['Family ','EDI Received','POUS Date','PurchaseOrder','LineNumber','PO QTY','ProductServiceID','AssignedDropZone']].to_excel("df_oor.xlsx")
-    st.dataframe(df_oor[df_oor.duplicated(key_cols,keep=False)])
     df_oor_to_update=update_dataframe(df_oor_to_update,df_oor.fillna(0),key_cols,exceptions=except_columns)
     df_oor_old=pd.concat([df_oor_old,df_oor_to_update])
     df_oor_old.reset_index(drop=True,inplace=True)
@@ -2547,13 +2557,17 @@ def load_price_list():
         if '~' in file:
             continue
         filepath=os.path.join(folder_prices,file)
+        if os.path.isdir(filepath):
+            continue
         close_xl_if_open(filepath)
-        if 'ACCESSORIES' in file:
+        if 'MASTER PRICE LIST ACCESSORIES' in file.upper():
             df=load_excel_with_header_key(filepath,key_text='Site')
             df=rename_columns(df,df_col_rel=df_col_rel,table_from='Price accessories')
-        else:
+        elif (('MASTER PRICE' in file.upper()) & ('ACCESSORIES' not in file.upper())):
             df=load_excel_with_header_key(filepath,key_text='Final SKU')
             df=rename_columns(df,df_col_rel=df_col_rel,table_from='Prices fixtures')
+        else:
+            continue
         df=df[['modelo','price']]
         df_prices=pd.concat([df_prices,df])
     df_prices.drop_duplicates(['modelo'],keep='last',inplace=True)
@@ -2565,7 +2579,7 @@ def load_price_list():
 # ----------------------------------------------------------------
 st.session_state.running=False
 st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V44. 2025-05-26</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V45. 2025-05-28</div>", unsafe_allow_html=True)
 st.title("Seguimiento a Embarques")
 
 # Load state and update if needed
