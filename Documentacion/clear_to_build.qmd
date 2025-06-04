@@ -1,0 +1,267 @@
+---
+title: "Clear to build"
+subtitle: |
+  Manual de Usuario
+
+  2025-01-30
+
+  Presione →
+format: 
+  revealjs:
+    self-contained: true  # Embeds images/CSS in a single HTML file
+    slide-number: true    # Shows slide numbers
+    transition: fade      # Slide transition effect
+    hash: true
+---
+
+## Instrucciones para el uso de la presentacion
+ Utilice las flechas ←/→ para avanzar en la presentacion
+
+```{r, include=FALSE}
+library(knitr)
+# Convert the SVG file to base64
+arrow_left_green_round <- image_uri("./svg/arrow_left_green_round.svg")
+arrow_up_green_round <- image_uri("./svg/arrow_up_green_round.svg")
+arrow_down_green_round <- image_uri("./svg/arrow_down_green_round.svg")
+arrow_right_green_round <- image_uri("./svg/arrow_right_green_round.svg")
+border_green_round <- image_uri("./svg/border_green_round.svg")
+```
+
+::: columns
+::: {.column width="50%"}
+![](/image/main_slide.png)
+
+<img src="`r arrow_left_green_round`" style="position: absolute; top: 100%; left: -2%; width: 50px; height: 50px; animation: moveArrow 1s infinite alternate;">
+<img src="`r border_green_round`" style="position: absolute; top: 40%; left: 0%; width: 170px; height: 170px; animation: pulseImage 1s infinite alternate;">
+:::
+
+::: {.column width="50%"}
+
+
+Haga click en el menu en la esquina inferior izquierda para desplegar el indice de la ayuda y saltar a una seccion en particular
+:::
+:::
+
+<style>
+@keyframes moveArrow {
+  from { transform: translateX(0px); }
+  to { transform: translateX(20px); }
+}
+@keyframes moveArrowUp {
+  from { transform: translateY(0px); }
+  to { transform: translateY(20px); }
+}
+@keyframes pulseImage {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+li {
+  line-height: .8 !important;
+}
+</style>
+
+---
+
+## Proposito general
+
+En una primera etapa se genera el reporte CTB en excel con la cantidad de material disponible para la contruccion de componentes para la PO.
+
+En la segunda etapa toma el CTB y otros reportes para generar una Propuesta de lanzamientos que indica que ordenes de la Demanda pueden lanzarse sin cortos y que ordenes estan impactadas por cortos por lo que no estan listos para el lanzamiento
+
+---
+
+## Etapa 1. Creacion de CTB
+### Seleccion de archivos
+Ejecute el codigo de la primera celda para generar el menu de seleccion de archivos
+
+::: columns
+::: {.column width="50%"}
+![](/image/Clear_to_build/seleccion_de_archivos.png)
+
+<img src="`r arrow_right_green_round`" style="position: absolute; top: 54%; left: -5%; width: 50px; height: 50px; animation: moveArrow 2s infinite alternate;">
+:::
+
+::: {.column width="50%"}
+
+Seleccione en esta seccion el folder de salidas
+
+Los repotes CTB, Analisis de lanzamiento y archivos auxiliares se crearan en esta carpeta
+
+:::
+:::
+
+---
+
+<span style="display: none;">Archivos obligatorios</span>
+<div style="font-size: 80%;">
+Utilice los botones para seleccionar los archivos de trabajo del proceso.
+
+
+- Archivos obligatorios:
+
+    - Consumption, 
+    - Independent Demands,
+    - Korrus,
+    - Work Order Action, 
+    - On Hand Detail, 
+    - Pendiente, 
+    - WOS
+    - BOM
+
+- Opcionales:
+
+    - Recibos
+    - BOM Detail
+    - Alternos
+    - PO WO Info
+    - Tablillas
+    - Component Allocation
+</div>
+
+---
+
+<span style="display: none;">Tip: filtro al seleccionar archivo</span>
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+<div style="font-size: 80%;">
+El cuadro de dialogo para abrir archivo tiene un filtro por default, este puede removerse para seleccionar cualquier archivo, no es necesario que este tenga un nombre en particular pero el filtro facilita la seleccion
+</div>
+
+![](/image/Clear_to_build/seleccion_de_archivo_1.png)
+
+<img src="`r arrow_right_green_round`" style="position: absolute; top: 80%; left: 70%; width: 50px; height: 50px; animation: moveArrow 2s infinite alternate;">
+
+</div>
+
+---
+
+<span style="display: none;">Columnas obligatorias</span>
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+<div style="font-size: 80%;">
+Cada archivo tiene una lista de columnas que son necesarias para la ejecucion del proceso, si alguna de ellas no se encuentra en un reporte, se generara el siguiente error en la celda correspondiente:
+</div>
+
+![](/image/Clear_to_build/error_columnas.png)
+
+<div style="font-size: 80%;">
+Se indica el nombre del Boton de la seccion de seleccion de archivos y la lista de columnas mandatorias que faltan
+</div>
+
+</div>
+
+---
+
+<span style="display: none;">Calculo de CTB</span>
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+<div style="font-size: 80%;">
+Al concluir las selecciones, ejecute el proceso "CTB calculo completo"
+
+Si se presenta algun error, el boton Go To mostrara una X, de click para ir a la celda que tiene el error
+</div>
+
+![](/image/Clear_to_build/calculo_completo.png)
+
+<img src="`r arrow_up_green_round`" style="position: absolute; top: 30%; left: 65%; width: 50px; height: 50px; animation: moveArrowUp 1s infinite alternate;">
+
+<img src="`r arrow_left_green_round`" style="position: absolute; top: 31%; left: 20%; width: 50px; height: 50px; animation: moveArrow 1s infinite alternate;">
+
+</div>
+
+---
+
+<span style="display: none;">Archivo CTB</span>
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+<div style="font-size: 80%;">
+Al final del proceso se genera y se abre el archivo CTB KRS.xlsx
+
+Puede modificar datos en este archivo, sin embargo al correr el Calculo del CTB de nuevo los datos manuales se eliminaran
+</div>
+
+![](/image/Clear_to_build/ctb_excel.png)
+
+<img src="`r arrow_up_green_round`" style="position: absolute; top: 60%; left: 89%; width: 50px; height: 50px; animation: moveArrowUp 1s infinite alternate;">
+
+<div style="font-size: 80%;">
+Modifique las cantidades en la columna Simulacion para agregar o reducir la cantidad de componentes disponibles para la sugerencia de lanzamientos
+Es importante guardar y cerrar el archivo antes de proceder al siguiente paso para que se actualicen las formulas incluso si no se realizan cambios
+</div>
+</div>
+
+---
+
+## Etapa 2. Sugerencia de Lanzamientos
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; margin-top: -40px">
+<div style="font-size: 80%;">
+Ajuste si es necesario el slider para limitar o la cantidad de cortos aceptables, es decir, los cortos para una PO/Modelo deben ser menores o iguales a esta cantidad para que sean tomados en cuenta para lanzamiento.
+</div>
+
+![](/image/Clear_to_build/sugerencia_de_lanzamientos.png)
+
+<img src="`r arrow_left_green_round`" style="position: absolute; top: 59%; left: 15%; width: 50px; height: 50px; animation: moveArrow 1s infinite alternate;">
+
+<img src="`r arrow_up_green_round`" style="position: absolute; top: 52%; left: 45%; width: 50px; height: 50px; animation: moveArrowUp 1s infinite alternate;">
+
+<div style="font-size: 80%; ">
+Ejecute la seccion "Sugerencia de lanzamientos"
+</div>
+</div>
+
+---
+
+<span style="display: none;">Archivo Analisis de lanzamiento</span>
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+<div style="font-size: 80%;">
+Al final del proceso se genera y abre el archivo: Analisis_lanzamiento.xlsx
+
+La hoja "Analisis de lanzamiento" muestra la lista de PO/Modelos de la demanda y el Estatus segun el analisis realizado:
+
+ - Listo: Significa que se puede lanzar y que no presenta cortos
+ - Cortos: El requerimiento presenta cortos pero no los suficientes para alcanzar el maximo de cortos permitido definido en el paso anterior
+ - Corto Critico, no lanzar: El requerimiento presenta un corto critico
+ - Maximo de cortos alcanzado, no lanzar: Presenta cortos y son mas de los permitidos en el paso anterior
+</div>
+
+![](/image/Clear_to_build/analisis_de_lanzamiento.png)
+
+
+</div>
+
+---
+
+<span style="display: none;">Prioridades en analisis de lanzamiento</span>
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+<div style="font-size: 80%;">
+Puede modificar las siguientes columnas para afectar la manera en que se calcula el Analisis de Lanzamiento:
+
+- Omitir: Agregue una "x" para evitar que ese requerimiento se tome en cuenta en el calculo
+- Alta prioridad: Agregue numeros para dar prioridad a la demanda, se calculara primero lo que tenga prioridad menor
+
+</div>
+
+</div>
+
+---
+
+<span style="display: none;">Cortos(link)</span>
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+<div style="font-size: 80%;">
+La columna "Cortos(link)", muestra solo uno de los cortos que tiene el requerimiento, de click en la celda par ir al detalle de los cortos para esa PO/Modelo en la hoja "Cortos-Detalle"
+
+La hoja "Cortos-Resumen" muestra el total de cortos sin tomar en cuenta los requerimientos que no se tomaron en cuenta en el calculo, es decir se resta toda la demanda de todo el material disponible y se muestra el resultado con el objetivo que que se observe cuantos componentes faltan para completar todos los requerimientos
+
+</div>
+
+</div>
+
+---
+
+<span style="display: none;">Resumen de Cortos</span>
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+<div style="font-size: 80%;">
+La Hoja "Cortos-Resumen" incluye la integracion del reporte "POWO Info Update..." para mostrar hacia la derecha la fecha de llegada de los componentes si se encuentra disponible
+</div>
+
+![](/image/Clear_to_build/cortos-resumen.png)
+
+</div>

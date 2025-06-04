@@ -1,0 +1,221 @@
+---
+title: "Seguimiento a Embarques"
+subtitle: |
+  Manual de Usuario
+
+  2025-01-30
+
+  Presione →
+format: 
+  revealjs:
+    self-contained: true  # Embeds images/CSS in a single HTML file
+    slide-number: true    # Shows slide numbers
+    transition: fade      # Slide transition effect
+    hash: true
+---
+
+## Instrucciones para el uso de la presentacion
+ Utilice las flechas ←/→ para avanzar en la presentacion
+
+```{r, include=FALSE}
+library(knitr)
+# Convert the SVG file to base64
+arrow_left_green_round <- image_uri("./svg/arrow_left_green_round.svg")
+arrow_up_green_round <- image_uri("./svg/arrow_up_green_round.svg")
+arrow_down_green_round <- image_uri("./svg/arrow_down_green_round.svg")
+arrow_right_green_round <- image_uri("./svg/arrow_right_green_round.svg")
+border_green_round <- image_uri("./svg/border_green_round.svg")
+```
+
+::: columns
+::: {.column width="50%"}
+![](/image/main_slide.png)
+
+<img src="`r arrow_left_green_round`" style="position: absolute; top: 100%; left: -2%; width: 50px; height: 50px; animation: moveArrow 1s infinite alternate;">
+<img src="`r border_green_round`" style="position: absolute; top: 40%; left: 0%; width: 170px; height: 170px; animation: pulseImage 1s infinite alternate;">
+:::
+
+::: {.column width="50%"}
+
+
+Haga click en el menu en la esquina inferior izquierda para desplegar el indice de la ayuda y saltar a una seccion en particular
+:::
+:::
+
+<style>
+@keyframes moveArrow {
+  from { transform: translateX(0px); }
+  to { transform: translateX(20px); }
+}
+@keyframes moveArrowUp {
+  from { transform: translateY(0px); }
+  to { transform: translateY(20px); }
+}
+@keyframes pulseImage {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+li {
+  line-height: .8 !important;
+}
+</style>
+
+---
+
+## Proposito general
+
+El objetivo principal es generar el reporte OOR que contiene la demanda del EDI y el estatus de cada orden/modelo, muestra el historial de las ordenes:
+
+ - En que work orders se han trabajado los productos
+ - Cuando se enviaron a ELP
+ - Cuando se enviaron al Cliente
+
+---
+
+### Seleccion de archivos
+Ejecute el codigo de la primera celda para generar el menu de seleccion de archivos
+
+::: columns
+::: {.column width="50%"}
+![](/image/local_shipments/seleccion_archivos.png)
+
+<img src="`r arrow_right_green_round`" style="position: absolute; top: 30%; left: -5%; width: 50px; height: 50px; animation: moveArrow 2s infinite alternate;">
+:::
+
+::: {.column width="50%"}
+Seleccione en esta seccion el folder de salidas
+
+Los repotes y archivos auxiliares se crearan en esta carpeta
+:::
+:::
+
+Las fechas pueden modificarse para modificar la manera en que se integran los datos, el detalle se explicara mas adelante
+
+---
+
+<span style="display: none;">Archivos obligatorios</span>
+<div style="font-size: 80%;">
+Utilice los botones para seleccionar los archivos de trabajo del proceso.
+
+
+- Archivos obligatorios:
+
+    - OOR
+    - Tracker
+    - ELP Master
+    - Shipment Transactios
+
+
+- Opcionales:
+
+    - InventoryStageBackup
+    - OH Max
+    - Gating Parts
+    - Yield reports (folder)
+</div>
+
+---
+
+## Explorar Outlook
+
+<div style="font-size: 70%;">
+Esta seccion es opcional
+
+El proceso buscara en su correo electronico en Outlook archivos adjuntos con el nombre 'Korrus' y los descargara en el folder "attachments" que se creara en caso de que no exista
+
+La fecha marcada como "Fecha mail" en el menu de selecciones indica la fecha a partir de la cual se explorara el mail. Puede seleccionar una fecha anterior si considera que algun archivo no se ha integrado, los datos no se duplicaran si se explora la misma fecha dos veces
+
+Al final del proceso se generaran dos archivos de trabajo:
+
+- Korrus_list: Indica el nombre del archivo integrado y la fecha en que se recibio el mail con este archivo adjunto. La columna Status muestra "e" en caso de que el archivo no se integrara debido a un error. Colocando "r" en el campo Status se puede integrar de nuevo un archivo en caso de que se hayan realizado correcciones en el mismo
+
+- Korrus_data.xlsx: Muestra los datos integrados de los diferentes archivos, la primera columna "origin_file", muestra el nombre del archivo de donde provienen los datos
+</div>
+
+---
+
+## Outlook Classic
+
+El proceso de exploracion de outlook funciona solo con la version de escritorio, por lo tanto es necesario desactivar la opcion "Try the new outlook"
+
+<img src="`r border_green_round`" style="position: absolute; top: 40%; left: 85%; width: 100px; height: 100px; animation: pulseImage 1s infinite alternate;">
+
+![](/image/local_shipments/outlook_classic.png)
+
+Si esta opcion de outlook no esta disponible o si es necesario integrar archivos de Korrus de otra fuente del Email, coloque archivos directamente en el folder "attachments" y ejecute el proceso "Explorar Outlook"
+
+---
+
+## Flujo de datos
+
+::: columns
+::: {.column width="70%"}
+
+![](/image/local_shipments/diagram.png)
+
+:::
+::: {.column width="30%"}
+
+<div style="font-size: 70%;">
+Es necesario proveer cuatro fuentes de informacion:
+</div>
+<div class="fragment fade-in-then-out" data-fragment-index="1" style="font-size: 70%;">
+    El EDI, ya sea del proceso de exploracion del email o del formato ELP Master log o ambos
+  <img src="`r border_green_round`" style="position: absolute; top: 47%; left: 5%; width: 250px; height: 250px; animation: pulseImage 1s infinite alternate;">
+</div>
+
+<div class="fragment fade-in-then-out" data-fragment-index="2" data-fragment="fade-out" style="font-size: 70%;">
+    Los embarques a ELP que proviene de ELP Master log (Hoja: ELP Master) o del reporte InventoryStageBackup o de ambos
+  <img src="`r border_green_round`" style="position: absolute; top: 31%; left: 15%; width: 120px; height: 120px; animation: pulseImage 1s infinite alternate;">    
+</div>
+
+<div class="fragment fade-in-then-out" data-fragment-index="3" style="font-size: 70%;">
+    El Shipment Transactions para determinar los embarques al cliente
+
+    El reporte Tracker con el detalle de las work orders
+  <img src="`r arrow_right_green_round`" style="position: absolute; top: 21%; left: 10%; width: 50px; height: 50px; animation: moveArrow 1s infinite alternate;">
+  <img src="`r arrow_left_green_round`" style="position: absolute; top: 80%; left: 35%; width: 50px; height: 50px; animation: moveArrow 1s infinite alternate;">  
+</div>
+
+:::
+:::
+
+---
+
+El proceso concentra los datos de las diferentes fuentes en los archivos intermedios:
+
+  - Shipped to Cust.xlsx
+  - Shipped to ELP.xlsx
+  - EDI Master.xlsx
+
+Se integran los datos y luego se eliminan los duplicados tomando en cuenta la llave de cada archivo, por ejemplo para el EDI Master se eliminan los duplicados por: 'PurchaseOrder','PODate','LineNumber','ProductServiceID','AssignedDropZone'
+
+De este modo pueden agregarse datos manualmente al archivo EDI Master y el proceso los tomara en cuenta sin duplicarlos
+
+---
+
+### Reporte OOR
+
+![](/image/local_shipments/oor_report.png)
+
+<div style="font-size: 70%;">
+El resultado final del proceso es el archivo OOR Report.xlsx
+</div>
+<div class="fragment fade-in-then-out" data-fragment-index="1" style="font-size: 70%;">
+    Se encuentra ordenado por Family/PurchaseOrder/ProductServiceId/Fecha y el color agrupa las lineas de una misma PO/Producto
+  <img src="`r arrow_right_green_round`" style="position: absolute; top: 38%; left: 7%; width: 50px; height: 50px; animation: moveArrow 1s infinite alternate;">
+</div>
+
+<div class="fragment fade-in-then-out" data-fragment-index="2" data-fragment="fade-out" style="font-size: 70%;">
+    La columna Status muestra el estado de la orden completa, es decir, dice "Shipped to ELP" solo si toda la orden se embarco a ELP y "Shipped to Cust" si toda la orden se embarco al cliente
+  <img src="`r arrow_right_green_round`" style="position: absolute; top: 21%; left: 65%; width: 50px; height: 50px; animation: moveArrow 1s infinite alternate;">   
+</div>
+
+<div class="fragment fade-in-then-out" data-fragment-index="3" style="font-size: 70%;">
+    Las columnas Work Order, Shipped to Elp, Shipped to Cust contienen hyperlinks que dirigen a los datos que originaron la sumatoria en las otras pestañas del workbook
+  <img src="`r arrow_up_green_round`" style="position: absolute; top: 60%; left: 52%; width: 50px; height: 50px; animation: moveArrowUp 1s infinite alternate;">
+  <img src="`r arrow_up_green_round`" style="position: absolute; top: 60%; left: 78%; width: 50px; height: 50px; animation: moveArrowUp 1s infinite alternate;">
+  <img src="`r arrow_up_green_round`" style="position: absolute; top: 60%; left: 84%; width: 50px; height: 50px; animation: moveArrowUp 1s infinite alternate;">
+</div>

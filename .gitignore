@@ -6,7 +6,6 @@
 scripts/requirements.txt
 *.msg
 *.xlsm
-*.qmd
 *.png
 *.svg
 *.pyc

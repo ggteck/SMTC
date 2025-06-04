@@ -1,0 +1,209 @@
+---
+title: "Carga de demanda"
+subtitle: |
+  Manual de Usuario
+
+  2025-02-03
+
+  Presione →
+format: 
+  revealjs:
+    self-contained: true  # Embeds images/CSS in a single HTML file
+    slide-number: true
+    transition: fade
+    hash: true
+---
+---
+
+## Instrucciones para el uso de la presentacion
+ Utilice las flechas ←/→ para avanzar en la presentacion
+
+```{r, include=FALSE}
+library(knitr)
+# Convert the SVG file to base64
+arrow_left_green_round <- image_uri("./svg/arrow_left_green_round.svg")
+arrow_up_green_round <- image_uri("./svg/arrow_up_green_round.svg")
+arrow_down_green_round <- image_uri("./svg/arrow_down_green_round.svg")
+arrow_right_green_round <- image_uri("./svg/arrow_right_green_round.svg")
+border_green_round <- image_uri("./svg/border_green_round.svg")
+```
+
+::: columns
+::: {.column width="50%"}
+![](/image/main_slide.png)
+
+<img src="`r arrow_left_green_round`" style="position: absolute; top: 100%; left: -2%; width: 50px; height: 50px; animation: moveArrow 1s infinite alternate;">
+<img src="`r border_green_round`" style="position: absolute; top: 40%; left: 0%; width: 170px; height: 170px; animation: pulseImage 1s infinite alternate;">
+:::
+
+::: {.column width="50%"}
+
+
+Haga click en el menu en la esquina inferior izquierda para desplegar el indice de la ayuda y saltar a una seccion en particular
+:::
+:::
+
+<style>
+@keyframes moveArrow {
+  from { transform: translateX(0px); }
+  to { transform: translateX(20px); }
+}
+@keyframes moveArrowUp {
+  from { transform: translateY(0px); }
+  to { transform: translateY(20px); }
+}
+@keyframes pulseImage {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+li {
+  line-height: .8 !important;
+}
+</style>
+
+## Proposito general
+
+Se toma la demanda del cliente del archivo Korrus y se explosiona con el BOM de los Modelos para determinar el consumo mensual de material y mostrarlo en el reporte Apollo Forecast
+Ademas se actualiza el reporte de Write forecast con los cambios que resulten de la demanda y con las POs que no se encuentren en el mismo, con el fin de cargarse en Rapid Response
+
+---
+
+## Seleccion de archivos
+Ejecute el codigo de la primera celda para generar el menu de seleccion de archivos
+
+::: columns
+::: {.column width="70%"}
+
+![](/image/carga_demanda/seleccion_archivos.png)
+
+<img src="`r arrow_left_green_round`" style="position: absolute; top: 38%; left: 10%; width: 30px; height: 30px; animation: moveArrow 1s infinite alternate;">
+<img src="`r arrow_left_green_round`" style="position: absolute; top: 55%; left: 30%; width: 30px; height: 30px; animation: moveArrow 1s infinite alternate;">
+<img src="`r arrow_left_green_round`" style="position: absolute; top: 59%; left: 30%; width: 30px; height: 30px; animation: moveArrow 1s infinite alternate;">
+
+:::
+::: {.column width="30%" }
+<div style="font-size: 60%;">
+Seleccione en esta seccion la carpeta de trabajo, en este folder se deben guardar los archivos de entrada
+
+Seleccione la Carpeta de salida. Los repotes Write forecast, Apollo forecast y archivos auxiliares se crearan en esta carpeta
+
+Seleccione la fecha para la integracion de la demanda, esta fecha se utilizara para aplicar el descuento de la demanda en el mes correspondiente
+</div>
+:::
+:::
+
+---
+
+<span style="display: none;">Archivos obligatorios</span>
+<div style="font-size: 80%;">
+Utilice los botones para seleccionar los archivos de trabajo del proceso.
+
+- Archivos obligatorios:
+
+    - KorrusFile, 
+    - Write Forecast,
+    - BOM,
+    - Apollo, 
+
+- Opcional:
+
+    - Shipment
+</div>
+
+---
+
+<span style="display: none;">Columnas obligatorias</span>
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+<div style="font-size: 80%;">
+Cada archivo tiene una lista de columnas que son necesarias para la ejecucion del proceso, si alguna de ellas no se encuentra en un reporte, se generara el siguiente error en la celda correspondiente:
+</div>
+
+![](/image/Clear_to_build/error_columnas.png)
+
+<div style="font-size: 80%;">
+Se indica el nombre del Boton de la seccion de seleccion de archivos y la lista de columnas mandatorias que faltan
+</div>
+
+</div>
+
+---
+
+<span style="display: none;">Generar demanda</span>
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+<div style="font-size: 80%;">
+Al concluir las selecciones, ejecute el proceso "Generar demanda"
+
+Si se presenta algun error, el boton Go To mostrara una X, de click para ir a la celda que tiene el error
+</div>
+
+![](/image/carga_demanda/generar_demanda.png)
+
+<img src="`r arrow_up_green_round`" style="position: absolute; top: 32%; left: 60%; width: 50px; height: 50px; animation: moveArrowUp 1s infinite alternate;">
+
+<img src="`r arrow_left_green_round`" style="position: absolute; top: 35%; left: 20%; width: 50px; height: 50px; animation: moveArrow 1s infinite alternate;">
+
+</div>
+
+---
+
+<span style="display: none;">Forecast de Apollo actualizado</span>
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+<div style="font-size: 80%;">
+Al final del proceso se generan y abren diferentes archivos:
+
+1. Forecast de Apollo actualizado.xlsx - Muestra la diferencia entre la proyeccion del reporte Apollo y la demanda explosionada con el bom y muestra si en algun mes se tendran cortos
+</div>
+
+![](/image/carga_demanda/forecast_apollo.png)
+
+<div style="position: absolute; top: 42%; left: 60%; font-size: 70%; border: 1px solid green">
+    del Apollo forecast
+</div>
+<div style="position: absolute; top: 60%; left: 72%; font-size: 70%; border: 1px solid green">
+    de KorrusFile
+</div>
+
+<img src="`r arrow_right_green_round`" style="position: absolute; top: 63%; left: 77%; width: 50px; height: 50px; animation: moveArrow 1s infinite alternate;">
+
+<img src="`r arrow_down_green_round`" style="position: absolute; top: 32%; left: 76%; width: 50px; height: 50px; animation: moveArrowUp 1s infinite alternate;">
+
+</div>
+
+---
+
+<span style="display: none;">Demanda explosionada</span>
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+<div style="font-size: 70%;">
+La base para el calculo de la demanda es la integracion de el bom explosionado en el archivo Pos_bom_raw.xlsx
+
+Este es un archivo de trabajo pero puede ser corregido manualmente.
+
+Sin embargo, lo ideal es reemplazar los registros de un dia completo seleccionando el archivo Korrus que se desea integrar y la fecha con que se requiere registrar, si existen datos para la fecha seleccionada en el campo "extract_date" estos seran reemplazados
+</div>
+
+![](/image/carga_demanda/pos_bom_raw.png)
+
+<div style="position: absolute; top: 72%; left: 0%; font-size: 70%; border: 1px solid green">
+    llave del archivo usada para reemplazar datos
+</div>
+
+
+<img src="`r arrow_left_green_round`" style="position: absolute; top: 63%; left: 10%; width: 50px; height: 50px; animation: moveArrow 1s infinite alternate;">
+
+</div>
+
+---
+
+<span style="display: none;">Write forecast y reportes</span>
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+<div style="font-size: 70%;">
+
+2. Write forecast updated.xlsx - Es el reporte en el formato necesario para cargar a Rapid. Incluye las POs del Archivo y se descuentan los embarques del archivo de embarques si se ha seleccionado
+
+3. Write_forecast_changes.xlsx - Muestra el detalle de los cambios realizados al write forecast con el fin de revisar que sean correctos
+
+4. Reportes.xlsx - Contiene varias pestañas con diferentes errores para su revision:
+  - Missing boms
+  - Demanda no encontrada en el Forecast 
