@@ -48,8 +48,20 @@ from openpyxl.utils import get_column_letter
 import win32com.client
 from pandas.tseries.offsets import BDay
 from openpyxl import load_workbook 
+from pathlib import Path
+from streamlit.errors import StreamlitAPIException 
+_THIS_PAGE = Path(__file__).stem        # e.g. "manufacturing_plan"
 
+prev = st.session_state.get("_active_page")
 
+if prev is None or prev != _THIS_PAGE:
+    # First load OR coming from a different page → purge everything
+    for k in list(st.session_state.keys()):
+        del st.session_state[k]
+
+# Record that we're now on this page
+st.session_state["_active_page"] = _THIS_PAGE
+# -------------------------------------------------------------------
 # =============================================================================
 # File/Directory & System Utilities
 # =============================================================================
@@ -225,11 +237,11 @@ def get_xl_formatting(table_name=None):
 # Persistence / State Management
 # =============================================================================
 
-def save_state_pickle(state, filename='folder_state_planner.pkl'):
+def save_state_pickle(state, filename='folder_state.pkl'):
     with open(filename, 'wb') as f:
         pickle.dump(state, f)
 
-def load_state_pickle(filename='folder_state_planner.pkl'):
+def load_state_pickle(filename='folder_state.pkl'):
     try:
         with open(filename, 'rb') as f:
             return pickle.load(f)
@@ -883,8 +895,8 @@ def manage_file_selector(selector_key, display_label, state):
 # =============================================================================
 # Main Script: Streamlit App UI
 # =============================================================================
-
-state = load_state_pickle()
+path_pickle=os.path.join(Path(__file__).parent,'folder_state_planner.pkl')
+state = load_state_pickle(path_pickle)
 st.session_state.folder_output = state['folder_output']
 st.session_state.selected_paths = state['selections']
 st.session_state.output_paths = set_paths(st.session_state.folder_output)
@@ -893,8 +905,10 @@ st.session_state.df_col_rel = st.session_state.col_rel['col_rel']
 st.session_state.df_columns = st.session_state.col_rel['columns']
 st.session_state.dict_formats=get_xl_formatting()
 
-
-st.set_page_config(page_title="Plan de manufactura", page_icon=":factory:")
+try:
+    st.set_page_config(page_title="Plan de manufactura", page_icon=":factory:")
+except StreamlitAPIException:
+    pass
 st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V12. 2025-05-25</div>", unsafe_allow_html=True)
 st.markdown(
     r"""
@@ -907,7 +921,6 @@ st.markdown(
 )
 st.title("Plan de manufactura")
 
-state = load_state_pickle()
 
 st.header("Seleccionar carpeta de trabajo")
 if st.button("Seleccionar carpeta", key="select_folder"):
@@ -916,7 +929,7 @@ if st.button("Seleccionar carpeta", key="select_folder"):
         state["folder_output"] = folder
         save_state_pickle(state)
         st.rerun()
-state = load_state_pickle()
+
 if state["folder_output"]:
     st.success(f"Carpeta de trabajo: {state['folder_output']}")
 else:

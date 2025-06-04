@@ -133,7 +133,21 @@ from copy import copy
 import zipfile
 import xml.etree.ElementTree as ET
 import warnings
+from pathlib import Path
+from streamlit.errors import StreamlitAPIException 
 warnings.filterwarnings("ignore")
+_THIS_PAGE = Path(__file__).stem        # e.g. "manufacturing_plan"
+
+prev = st.session_state.get("_active_page")
+
+if prev is None or prev != _THIS_PAGE:
+    # First load OR coming from a different page → purge everything
+    for k in list(st.session_state.keys()):
+        del st.session_state[k]
+
+# Record that we're now on this page
+st.session_state["_active_page"] = _THIS_PAGE
+# -------------------------------------------------------------------
 # ----------------------------------------------------------------
 # Mandatory columns dictionary for check_mandatory_cols (for Korrus)
 # ----------------------------------------------------------------
@@ -1136,7 +1150,7 @@ def set_hyperlink(df,sheet_name,col_name,idx_name,typ='str'):
 # ----------------------------------------------------------------
 # Manage File Selector (Streamlit)
 # ----------------------------------------------------------------
-def manage_file_selector(selector_key, display_label, state):
+def manage_file_selector(selector_key, display_label, state, path_pickle):
     button_ph = st.empty()
     msg_ph = st.empty()
 
@@ -1146,13 +1160,13 @@ def manage_file_selector(selector_key, display_label, state):
             files = open_file_selection(initialdir=state.get('folder_output') or os.getcwd())
             if files:
                 state['selections'][selector_key] = files[0]
-                save_state_pickle(state)
+                save_state_pickle(state,filename=path_pickle)
                 st.rerun()
         msg_ph.info(f"{display_label} no seleccionado.")
     else:
         if button_ph.button(f"Change {display_label} File", key=f"change_{selector_key}"):
             state['selections'][selector_key] = 'Not selected'
-            save_state_pickle(state)
+            save_state_pickle(state,filename=path_pickle)
             st.rerun()
         msg_ph.success(f"Selected {display_label} File: {selected_path}")
 
@@ -2578,12 +2592,15 @@ def load_price_list():
 # Streamlit UI
 # ----------------------------------------------------------------
 st.session_state.running=False
-st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
+try:
+    st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
+except StreamlitAPIException:
+    pass
 st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V45. 2025-05-28</div>", unsafe_allow_html=True)
 st.title("Seguimiento a Embarques")
-
+path_pickle=os.path.join(Path(__file__).parent,'folder_state_local_shipments.pkl')
 # Load state and update if needed
-state = load_state_pickle()
+state = load_state_pickle(path_pickle)
 
 
 # Selección de carpeta de salidas
@@ -2592,7 +2609,7 @@ if st.button("Seleccionar carpeta", key="select_folder"):
     folder = select_directory(initialdir=state.get("folder_output", os.getcwd()))
     if folder:
         state["folder_output"] = folder
-        save_state_pickle(state)
+        save_state_pickle(state,filename=path_pickle)
         st.rerun()
 if state.get("folder_output"):
     st.success(f"Carpeta de trabajo: {state['folder_output']}")
@@ -2614,7 +2631,7 @@ default_label = state.get("outlook_folder") if state.get("outlook_folder") in la
 selected_label = st.selectbox("Selecciona una carpeta de Outlook", labels, index=labels.index(default_label))
 if selected_label != state.get("outlook_folder"):
     state["outlook_folder"] = selected_label
-    save_state_pickle(state)
+    save_state_pickle(state,filename=path_pickle)
 for label, folder in folder_options:
     if label == selected_label:
         st.session_state.mail_folder = folder
@@ -2625,7 +2642,7 @@ st.write("Carpeta seleccionada:", st.session_state.mail_folder.Name)
 # Selección de archivos mediante manage_file_selector
 st.header("Seleccionar archivos")
 for file_key in ['OOR', 'Tracker', 'EDI Master', 'ELP Master log', 'InventoryStageBakup', 'OH Max', 'Gating Parts']:
-    manage_file_selector(file_key, file_key, state)
+    manage_file_selector(file_key, file_key, state, path_pickle)
 
 # Selección de carpeta de yield reports
 st.header("Seleccionar carpeta de Yield reports y Precios")
@@ -2633,7 +2650,7 @@ if st.button("Seleccionar carpeta", key="select_yield"):
     folder = select_directory(initialdir=state.get("folder_yield", os.getcwd()))
     if folder:
         state["folder_yield"] = folder
-        save_state_pickle(state)
+        save_state_pickle(state,filename=path_pickle)
         st.rerun()
 if state.get("folder_yield"):
     st.success(f"Carpeta de Yield reports: {state['folder_yield']}")
@@ -2644,7 +2661,7 @@ if st.button("Seleccionar carpeta", key="select_prices"):
     folder = select_directory(initialdir=state.get("folder_prices", os.getcwd()))
     if folder:
         state["folder_prices"] = folder
-        save_state_pickle(state)
+        save_state_pickle(state,filename=path_pickle)
         st.rerun()
 if state.get("folder_prices"):
     st.success(f"Carpeta de Precios reports: {state['folder_prices']}")
@@ -2657,7 +2674,7 @@ else:
 fecha_freeze_input = st.date_input("PODate Inicial de Actualización", value=state.get("fecha_freeze") or date.today())
 if fecha_freeze_input != state.get("fecha_freeze"):
     state["fecha_freeze"] = fecha_freeze_input
-    save_state_pickle(state)
+    save_state_pickle(state,filename=path_pickle)
     
 st.header("Procesos")
 
@@ -2670,7 +2687,7 @@ with col2:
     fecha_mail_input = st.date_input("Fecha mail", value=state.get("fecha_mail") or (date.today() - timedelta(days=1)))
     if fecha_mail_input != state.get("fecha_mail"):
         state["fecha_mail"] = fecha_mail_input
-        save_state_pickle(state)
+        save_state_pickle(state,filename=path_pickle)
 st.divider()
 
 if "explorar_msg" in st.session_state:
@@ -2691,7 +2708,7 @@ with col2:
     )
     if fecha_shipments_input != state.get("fecha_shipments_elp"):
         state["fecha_shipments_elp"] = fecha_shipments_input
-        save_state_pickle(state)
+        save_state_pickle(state,filename=path_pickle)
 st.divider()
 if "edi_msg" in st.session_state:
     st.write(st.session_state.reportes_msg)
@@ -2724,7 +2741,7 @@ if "fixture_eta_gap_input" not in st.session_state:
 
 def _save_fixture_eta_gap():
     state["fixture_eta_gap"] = st.session_state["fixture_eta_gap_input"]
-    save_state_pickle(state)
+    save_state_pickle(state,filename=path_pickle)
 
 # Número input: Fixture ETA Gap con callback
 with fixture_eta_gap: 
@@ -2743,7 +2760,7 @@ if "accessory_eta_gap_input" not in st.session_state:
 
 def _save_accessory_eta_gap():
     state["accessory_eta_gap"] = st.session_state["accessory_eta_gap_input"]
-    save_state_pickle(state)
+    save_state_pickle(state,filename=path_pickle)
 
 # Número input: Accessory ETA Gap con callback
 with accessory_eta_gap:
@@ -2763,7 +2780,7 @@ if "move_eta_gap_input" not in st.session_state:
 
 def _save_move_eta_gap():
     state["move_eta_gap"] = st.session_state["move_eta_gap_input"]
-    save_state_pickle(state)
+    save_state_pickle(state,filename=path_pickle)
 
 # Número input: Move ETA Gap con callback
 with move_eta_gap:

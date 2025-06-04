@@ -13,9 +13,6 @@ state=load_state_pickle()
 #%%
 state
 
-# %%
-#%%
-
 st.write("Ejecutando función: Explorar Outlook")
 # Ensure a folder was selected from Outlook
 if "mail_folder" not in st.session_state or st.session_state.mail_folder is None:
