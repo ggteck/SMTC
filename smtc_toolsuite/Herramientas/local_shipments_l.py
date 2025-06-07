@@ -1,5 +1,8 @@
 """
 # Seguimiento a embarques
+- V45. 2025-06-04
+    - Cambio el nombre de un status
+    - En la actualizacion del status ignorar lo que no tenga PO
 - V45. 2025-05-28
     - Correccion en la integracion de precios
     - Reporte de ordenes no encontradas en el EDI
@@ -2080,7 +2083,8 @@ def actualizar_status():
     # Update latest commit date
     df_oor.loc[df_oor['oor_status']=='Shortage','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='Shortage','max_date_short']
     df_oor.loc[df_oor['oor_status']=='In shipping plan_c1','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='In shipping plan_c1','estimated_move_date_cuu_2_days']
-    df_oor.loc[df_oor['oor_status']=='In shipping plan_c2','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='In shipping plan_c2','max_date_ship_c2']
+    df_oor.loc[df_oor['oor_status']=='In shipping plan (waiting for acc)','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='In shipping plan (waiting for acc)','max_date_ship_c2']
+    # df_oor.loc[df_oor['oor_status']=='Ready to ship','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='Ready to ship','acc_gp_eta_2_days']
     df_oor['oor_status']=df_oor['oor_status'].str.replace('_c1','').str.replace('_c2','')
 
     # Update TAT Category
@@ -2093,6 +2097,7 @@ def actualizar_status():
     if 'tat_cat' in df_oor.columns:
         df_oor.drop(columns=['tat_cat'],inplace=True)
     df_oor=df_oor.merge(df_tat,how='left',on=['po','modelo','LineNumber'])
+    df_oor=df_oor[~df_oor['po'].isna()]
 
     for idx,row in df_oor[['oor_status','Status_cell','latest_commit_date','latest_commit_date_cell','tat_cat','TAT Category_cell']].iterrows():
         ws_oor[row['Status_cell']]=row['oor_status']
