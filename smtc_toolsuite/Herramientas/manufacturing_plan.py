@@ -1,5 +1,8 @@
 """
 Manufacturing plan
+- V14. 2025-06-07
+    - Correccion para la primera vez que se ejecuta el script
+    - Las ordenes con Status Planeada no se toman en cuenta para la programacion
 - V13. 2025-05-28
     - Se filtra SVT del 16 WK
 - V12. 2025-05-25
@@ -433,6 +436,8 @@ def orders_priority():
     df_sales=read_excel(path_sales)
     df_sales=rename_columns(df_sales,df_col_rel,table_from="Top ventas")
     df_sales['pn']=df_sales['pn'].astype(str)
+    df_sales['tot_value'] = pd.to_numeric(df_sales['tot_value'], errors='coerce')
+    df_sales=df_sales.dropna(subset=['tot_value'])
     df_sales = (
         df_sales
         .dropna(subset=['pn'])
@@ -469,6 +474,7 @@ def verify_order_list():
     df_order_list = load_excel_with_header_key(path_order_list, key_text='Priority')
     check_mandatory_columns_df(df_order_list.columns,df_columns=df_columns,table='Lista de ordenes')
     df_order_list = rename_columns(df_order_list, df_col_rel, table_from='Lista de ordenes')
+    df_order_list = df_order_list[df_order_list['status']!='Planeada']
     st.session_state.df_order_list=df_order_list
 
     #% Open old plan
@@ -486,7 +492,7 @@ def verify_order_list():
         st.info("Ok")
         return
     st.info("Las siguientes ordenes ya estan planeadas, continue si desea agregarlas al nuevo plan con cantidad diferente")
-    st.dataframe(df_already_planned.drop(columns=['status']))
+    st.dataframe(df_already_planned)
 
 
 def create_plan():
@@ -677,7 +683,8 @@ def create_plan():
 
                     # compute setup only if PN changed vs last service on this machine
                     last_pn = machine_status.get((m,'last_pn'), None)
-                    need_setup = setup_time if last_pn != pn else 0
+                    last_oper = machine_status.get((m,'last_oper'), None)
+                    need_setup = setup_time if (last_pn != pn or last_oper != routing_name) else 0
                     # can we fit setup+one run?
                     if avail_shifts[shift] < need_setup + run_time:
                         avail_shifts[shift] = 0
@@ -714,6 +721,7 @@ def create_plan():
                     qty -= pieces
                     # track last_pn for setup logic
                     machine_status[(m,'last_pn')] = pn
+                    machine_status[(m,'last_oper')] = routing_name
                     # compute finish timestamp to enforce sequencing
                     finish_ts = date_ts  # + shift end offset if you track that
                     # bump next‐start only when changing machines
@@ -884,14 +892,14 @@ def manage_file_selector(selector_key, display_label, state):
             files = open_file_selection(initialdir=state["folder_output"] or os.getcwd())
             if files:
                 state["selections"][selector_key] = files[0]
-                save_state_pickle(state)
+                save_state_pickle(state,filename=path_pickle)
                 st.rerun()
         st.info(f"{display_label} no seleccionado.")
     else:
         st.success(f"Selected {display_label} File: {state['selections'][selector_key]}")
         if st.button(f"Change {display_label} File", key=f"change_{selector_key}"):
             state["selections"][selector_key] = ""
-            save_state_pickle(state)
+            save_state_pickle(state,filename=path_pickle)
             st.rerun()
 
 # =============================================================================
@@ -901,17 +909,19 @@ path_pickle=os.path.join(Path(__file__).parent,'folder_state_planner.pkl')
 state = load_state_pickle(path_pickle)
 st.session_state.folder_output = state['folder_output']
 st.session_state.selected_paths = state['selections']
-st.session_state.output_paths = set_paths(st.session_state.folder_output)
-st.session_state.col_rel = set_col_rel(st.session_state.output_paths)
-st.session_state.df_col_rel = st.session_state.col_rel['col_rel']
-st.session_state.df_columns = st.session_state.col_rel['columns']
-st.session_state.dict_formats=get_xl_formatting()
-
+try:
+    st.session_state.output_paths = set_paths(st.session_state.folder_output)
+    st.session_state.col_rel = set_col_rel(st.session_state.output_paths)
+    st.session_state.df_col_rel = st.session_state.col_rel['col_rel']
+    st.session_state.df_columns = st.session_state.col_rel['columns']
+    st.session_state.dict_formats=get_xl_formatting()
+except:
+    st.warning("Seleccione la carpeta de trabajo y reinicie")
 try:
     st.set_page_config(page_title="Plan de manufactura", page_icon=":factory:")
 except StreamlitAPIException:
     pass
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V12. 2025-05-25</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V14. 2025-06-07</div>", unsafe_allow_html=True)
 st.markdown(
     r"""
     <style>
@@ -929,7 +939,7 @@ if st.button("Seleccionar carpeta", key="select_folder"):
     folder = select_directory(initialdir=state["folder_output"] or os.getcwd())
     if folder:
         state["folder_output"] = folder
-        save_state_pickle(state)
+        save_state_pickle(state,filename=path_pickle)
         st.rerun()
 
 if state["folder_output"]:
@@ -965,13 +975,13 @@ if st.button("Verificar ordenes"):
 selected_date = st.date_input("Fecha inicial de programacion", value=state.get("initial_date", datetime.date.today()))
 if selected_date != state.get("initial_date", datetime.date.today()):
     state["initial_date"] = selected_date
-    save_state_pickle(state)
+    save_state_pickle(state,filename=path_pickle)
     st.rerun()
 
 selected_lim_date = st.date_input("Fecha final de programacion", value=state.get("limit_date", datetime.date.today()))
 if selected_lim_date != state.get("limit_date", datetime.date.today()):
     state["limit_date"] = selected_lim_date
-    save_state_pickle(state)
+    save_state_pickle(state,filename=path_pickle)
     st.rerun()
 
 if st.button("Crear Plan"):

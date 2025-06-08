@@ -48,6 +48,7 @@ dict_equiv_inv={v: k for k, v in dict_equiv.items()}
 path_order_list = file_selectors['order_file']
 df_order_list = load_excel_with_header_key(path_order_list, key_text='Priority')
 df_order_list = rename_columns(df_order_list, df_col_rel, table_from='Lista de ordenes')
+df_order_list = df_order_list[df_order_list['status']!='Planeada']
 df_order_list['operation_description']=df_order_list['operation_description'].str.upper()
 df_order_list['pn_orig']=df_order_list['pn']
 df_order_list['pn']=df_order_list['pn'].replace(dict_equiv)
@@ -190,7 +191,8 @@ for _, order in df_order_list.iterrows():
 
                 # compute setup only if PN changed vs last service on this machine
                 last_pn = machine_status.get((m,'last_pn'), None)
-                need_setup = setup_time if last_pn != pn else 0
+                last_oper = machine_status.get((m,'last_oper'), None)
+                need_setup = setup_time if (last_pn != pn or last_oper != routing_name) else 0
                 # can we fit setup+one run?
                 if avail_shifts[shift] < need_setup + run_time:
                     avail_shifts[shift] = 0
@@ -227,6 +229,7 @@ for _, order in df_order_list.iterrows():
                 qty -= pieces
                 # track last_pn for setup logic
                 machine_status[(m,'last_pn')] = pn
+                machine_status[(m,'last_oper')] = routing_name
                 # compute finish timestamp to enforce sequencing
                 finish_ts = date_ts  # + shift end offset if you track that
                 # bump next‐start only when changing machines
@@ -393,6 +396,8 @@ path_sales=file_selectors['sales']
 df_sales=read_excel(path_sales)
 df_sales=rename_columns(df_sales,df_col_rel,table_from="Top ventas")
 df_sales['pn']=df_sales['pn'].astype(str)
+df_sales['tot_value'] = pd.to_numeric(df_sales['tot_value'], errors='coerce')
+df_sales=df_sales.dropna(subset=['tot_value'])
 df_sales = (
     df_sales
     .dropna(subset=['pn'])
