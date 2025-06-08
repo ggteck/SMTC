@@ -246,8 +246,10 @@ def load_state_pickle(filename='folder_state.pkl'):
         with open(filename, 'rb') as f:
             return pickle.load(f)
     except FileNotFoundError:
-        return {"folder_output": None, "selections": {}, "initial_date": datetime.date.today()}
-
+        return {
+            "folder_output": None,
+            "selections": {}
+        }
 def is_file_open(filepath):
     # Check if the file exists
     if not os.path.exists(filepath):
