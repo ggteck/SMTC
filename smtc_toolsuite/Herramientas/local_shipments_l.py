@@ -1,6 +1,8 @@
 """
 # Seguimiento a embarques
-- V45. 2025-06-04
+- V47. 2025-06-10
+    - Correccion de fechas de cortos, si hay en blanco se deja corto y en blanco
+- V46. 2025-06-04
     - Cambio el nombre de un status
     - En la actualizacion del status ignorar lo que no tenga PO
 - V45. 2025-05-28
@@ -2062,6 +2064,8 @@ def actualizar_status():
     idx=(~df_oor['oor_status'].str.lower().isin(['cancelled','shipped']))
     df_oor=df_oor[idx]
     df_oor['oor_status']=df_oor['status_new']
+    lst_options=[x for x in df_oor_stat.columns if not x.endswith('_cell')]
+    df_oor_stat[lst_options].to_excel(os.path.join(state["folder_output"],'oor_options.xlsx'))
 
 
     # Actualizar fecha: Last commit date
@@ -2075,7 +2079,28 @@ def actualizar_status():
     # Max datefor In shipping plan Case2
     df_short_dates['max_date_ship_c2']=df_short_dates[['estimated_move_date_cuu_2_days','acc_gp_eta_2_days']].max(axis=1)
     df_short_dates.drop(columns=['fixt_gp_eta','acc_gp_eta','estimated_move_date_cuu'],inplace=True)
-    df_short_dates=df_short_dates.groupby('po').max().reset_index()
+    # df_short_dates=df_short_dates.groupby('po').max().reset_index()
+    def max_or_null(s: pd.Series):
+        """
+        Return NaT if the group contains at least one null,
+        otherwise return the maximum value.
+        """
+        return s.max() if s.notna().all() else pd.NaT
+
+    date_cols = [
+        'fixt_gp_eta_7_days',
+        'acc_gp_eta_2_days',
+        'estimated_move_date_cuu_2_days',
+        'max_date_short',
+        'max_date_ship_c2'
+    ]
+
+    df_short_dates = (
+        df_short_dates
+            .groupby('po', as_index=False)
+            .agg({col: max_or_null for col in date_cols})
+    )
+
     df_oor['latest_commit_date']=None
     df_oor=df_oor.merge(df_short_dates,how='left',on=['po'])
 
@@ -2601,7 +2626,7 @@ try:
     st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
 except StreamlitAPIException:
     pass
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V45. 2025-05-28</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V47. 2025-06-10</div>", unsafe_allow_html=True)
 st.title("Seguimiento a Embarques")
 path_pickle=os.path.join(Path(__file__).parent,'folder_state_local_shipments.pkl')
 # Load state and update if needed

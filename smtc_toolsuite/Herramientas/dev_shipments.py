@@ -1053,9 +1053,12 @@ idx=(~df_oor['oor_status'].str.lower().isin(['cancelled','shipped']))
 df_oor=df_oor[idx]
 df_oor['oor_status']=df_oor['status_new']
 
-
-
-
+#%%
+df_oor_stat[df_oor_stat['po']=='POUS272677'][['po','po_active_acc_accessory_gating_part','po_active_fix_in_plan','edi_received']]
+#%%
+lst_cols=[x for x in list(x for x in df_oor_stat.columns if not x.endswith('_cell'))]
+df_oor_stat[lst_cols]
+#%%
 # Actualizar fecha: Last commit date
 df_short_dates=df_oor.copy()
 df_short_dates=df_short_dates[['po','fixt_gp_eta','acc_gp_eta','estimated_move_date_cuu']]
@@ -1067,15 +1070,36 @@ df_short_dates['max_date_short']=df_short_dates[['fixt_gp_eta_7_days','acc_gp_et
 # Max datefor In shipping plan Case2
 df_short_dates['max_date_ship_c2']=df_short_dates[['estimated_move_date_cuu_2_days','acc_gp_eta_2_days']].max(axis=1)
 df_short_dates.drop(columns=['fixt_gp_eta','acc_gp_eta','estimated_move_date_cuu'],inplace=True)
-df_short_dates=df_short_dates.groupby('po').max().reset_index()
+#%%
+# df_short_dates=df_short_dates.groupby('po').max().reset_index()
+def max_or_null(s: pd.Series):
+    """
+    Return NaT if the group contains at least one null,
+    otherwise return the maximum value.
+    """
+    return s.max() if s.notna().all() else pd.NaT
+
+date_cols = [
+    'fixt_gp_eta_7_days',
+    'acc_gp_eta_2_days',
+    'estimated_move_date_cuu_2_days',
+    'max_date_short',
+    'max_date_ship_c2'
+]
+
+df_short_dates = (
+    df_short_dates
+        .groupby('po', as_index=False)
+        .agg({col: max_or_null for col in date_cols})
+)
+
 df_oor['latest_commit_date']=None
 df_oor=df_oor.merge(df_short_dates,how='left',on=['po'])
-
 
 # Update latest commit date
 df_oor.loc[df_oor['oor_status']=='Shortage','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='Shortage','max_date_short']
 df_oor.loc[df_oor['oor_status']=='In shipping plan_c1','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='In shipping plan_c1','estimated_move_date_cuu_2_days']
-df_oor.loc[df_oor['oor_status']=='In shipping plan_c2','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='In shipping plan_c2','max_date_ship_c2']
+df_oor.loc[df_oor['oor_status']=='In shipping plan (waiting for acc)','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='In shipping plan_c2','max_date_ship_c2']
 df_oor['oor_status']=df_oor['oor_status'].str.replace('_c1','').str.replace('_c2','')
 
 # Update TAT Category
