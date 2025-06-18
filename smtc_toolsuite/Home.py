@@ -4,7 +4,7 @@ from pathlib import Path
 import streamlit as st
 
 # path to your repo
-REPO_PATH = Path(__file__).parent
+REPO_PATH = Path(__file__).resolve().parent
 
 scripts_catalog = st.Page(
     "Indice/scripts_catalog.py", title="Indice", icon=":material/dashboard:", default=True
@@ -28,9 +28,12 @@ pg = st.navigation(
 )
 
 pg.run()
+
+GIT_EXE = REPO_PATH.parent.parent / "mingit" / "cmd" / "git.exe"
+
 if st.button("Actualizar repositorio"):
     res = subprocess.run(
-        ["git", "pull"],
+        [str(GIT_EXE), "pull"],
         cwd=str(REPO_PATH),
         capture_output=True,
         text=True
