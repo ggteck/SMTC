@@ -3,20 +3,17 @@ import subprocess
 from pathlib import Path
 import streamlit as st
 
-# path to your repo
-REPO_PATH = Path(__file__).resolve().parent
-
 scripts_catalog = st.Page(
-    "Indice/scripts_catalog.py", title="Indice", icon=":material/dashboard:", default=True
+    "Indice/scripts_catalog.py", title="Indice", icon=":material/list:", default=True
 )
 manufacturing_plan = st.Page(
-    "Herramientas/manufacturing_plan.py", title="Manufacturing plan", icon=":material/dashboard:"
+    "Herramientas/manufacturing_plan.py", title="Manufacturing plan", icon=":material/edit_calendar:"
 )
 local_shipments = st.Page(
-    "Herramientas/local_shipments_l.py", title="Seguimiento a embarques", icon=":material/dashboard:"
+    "Herramientas/local_shipments_l.py", title="Seguimiento a embarques", icon=":material/local_shipping:"
 )
 doc = st.Page(
-    "Documentacion/doc.py", title="Ejemplo de documento", icon=":material/dashboard:"
+    "Documentacion/plan_de_manufactura_doc.py", title="Plan de manufactura", icon=":material/edit_calendar:"
 )
 
 pg = st.navigation(
@@ -29,16 +26,3 @@ pg = st.navigation(
 
 pg.run()
 
-GIT_EXE = REPO_PATH.parent.parent / "mingit" / "cmd" / "git.exe"
-
-if st.button("Actualizar repositorio"):
-    res = subprocess.run(
-        [str(GIT_EXE), "pull"],
-        cwd=str(REPO_PATH),
-        capture_output=True,
-        text=True
-    )
-    if res.returncode == 0:
-        st.success(f"✅ Actualizado:\n{res.stdout}")
-    else:
-        st.error(f"❌ Error:\n{res.stderr}")

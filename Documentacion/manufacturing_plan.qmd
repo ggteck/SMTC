@@ -1,0 +1,209 @@
+---
+title: "Plantación de Maquinado"
+subtitle: |
+  Manual de Usuario
+
+  2025-06-17
+
+  Presione →
+format: 
+  revealjs:
+    self-contained: true  # Embeds images/CSS in a single HTML file
+    slide-number: true    # Shows slide numbers
+    transition: fade      # Slide transition effect
+    hash: true
+---
+
+## Instrucciones para el uso de la presentación
+ Utilice las flechas ←/→ para avanzar en la presentación
+
+```{r, include=FALSE}
+library(knitr)
+# Convert the SVG file to base64
+arrow_left_green_round <- image_uri("./svg/arrow_left_green_round.svg")
+arrow_up_green_round <- image_uri("./svg/arrow_up_green_round.svg")
+arrow_down_green_round <- image_uri("./svg/arrow_down_green_round.svg")
+arrow_right_green_round <- image_uri("./svg/arrow_right_green_round.svg")
+border_green_round <- image_uri("./svg/border_green_round.svg")
+```
+
+::: columns
+::: {.column width="50%"}
+![](/image/main_slide.png)
+
+<img src="`r arrow_left_green_round`" style="position: absolute; top: 62%; left: 0%; width: 50px; height: 50px; animation: moveArrow 1s infinite alternate;">
+<img src="`r border_green_round`" style="position: absolute; top: 30%; left: -5%; width: 170px; height: 170px; animation: pulseImage 1s infinite alternate;">
+:::
+
+::: {.column width="50%"}
+
+
+Haga click en el menu en la esquina inferior izquierda para desplegar el indice de la ayuda y saltar a una seccion en particular
+:::
+:::
+
+<style>
+@keyframes moveArrow {
+  from { transform: translateX(0px); }
+  to { transform: translateX(20px); }
+}
+@keyframes moveArrowUp {
+  from { transform: translateY(0px); }
+  to { transform: translateY(20px); }
+}
+@keyframes pulseImage {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+li {
+  line-height: .8 !important;
+}
+</style>
+
+---
+
+## Propósito general  {.smaller}
+
+La aplicación de Planificación de Producción está diseñada para:
+
+- Asignación automática de órdenes de trabajo (WO) a máquinas según secuencia de operaciones (routing).
+- Optimización de turnos, maximizando carga y minimizando tiempos ociosos.
+- Priorización dinámica por urgencia o fecha límite.
+- Control de plazos, detiene la programación al alcanzar la fecha tope.
+- Tiempos de setup aplicados sólo al cambiar de parte u operación.
+- Entrega de plan detallado con fecha, máquina, turno, operación y tiempos.
+
+---
+
+### Seleccion de archivos y carpeta de trabajo
+
+::: columns
+::: {.column width="50%"}
+![](/image/manufacturing_plan/manufacturing_plan_selections_1.png)
+
+<img src="`r arrow_right_green_round`" style="position: absolute; top: 35%; left: 10%; width: 50px; height: 50px; animation: moveArrow 2s infinite alternate;">
+:::
+
+::: {.column width="50%"}
+Inicie seleccionando la carpeta de trabajo, el proceso generara en esta carpeta el plan de manufactura y los reportes por maquina
+
+Esta carpeta debe contener el archivo columns and formatting.xlsx
+
+Seleccione los archivos que se indican en los botones
+
+:::
+:::
+
+---
+
+Estos archivos son necesarios solo para el proceso de sugerir prioridades:
+
+    - 16Wk Gap
+    - Top ventas 
+    - End Of Period
+
+
+Los demás se utilizan en los procesos desde Verificar ordenes en adelante 
+
+---
+
+::: columns
+::: {.column width="50%"}
+![](/image/manufacturing_plan/manufacturing_plan_dates.png)
+
+:::
+
+::: {.column width="50%"}
+
+Seleccione las fechas inicial y final de programación. La aplicación programa las ordenes solo en ese periodo de tiempo.
+
+Si una maquina se llena con ordenes en ese periodo de tiempo, las ordenes se colocaran en otra maquina o se les colocara estatus Incompleta
+
+:::
+:::
+
+---
+
+## Configuración de las maquinas {.smaller}
+
+El tiempo disponible por maquina se define en el archivo "Horas disponibles.xlsx"
+![](/image/manufacturing_plan/manufacturing_plan_maquinas.png)
+
+---
+
+## {.smaller}
+Defina en este archivo los turnos disponibles en columnas y las horas disponibles en las filas por maquina.
+En la columna dia puede definir una fecha en la que una maquina pueda tener una disponibilidad en particular.
+Fuera de ese dia el proceso utilizara la disponibilidad por default que tiene la columna dia en blanco.
+
+---
+
+## Equivalencias {.smaller}
+Algunos números de parte pueden tener diferentes nombres.
+Para estos casos, defina los números de parte correspondientes en el archivo "equivalencias.xlsx"
+![](/image/manufacturing_plan/manufacturing_plan_equivalence.png)
+
+---
+
+### Lista de ordenes
+
+![](/image/manufacturing_plan/order_list.png)
+
+La lista de ordenes es una tabla de excel que indica al proceso las ordenes, componentes cantidades que deben ser programadas entre las maquinas disponibles 
+El orden en que serán asignadas se determina por la primera columna Priority
+
+---
+
+La columna maquina sirve para indicar una maquina especifica en la cual se desea asignar una orden.
+Si esta columna esta vacía, el proceso buscara la maquina definida para el numero de parte en el archivo Master de Doblado
+Una vez que se asigna una maquina a un componente, el proceso **solo utilizara dicha maquina**, a pesar de que otras opciones estén disponibles en el Master de doblado
+
+---
+
+La lista de ordenes puede generarse automáticamente presionando el botón Sugerir prioridades.
+Los inputs de este proceso son:
+    - 16Wk Gap
+    - Top ventas 
+    - End Of Period
+Este proceso generara el archivo **"Lista de Ordenes sugerida.xlsx"**
+El archivo puede usarse directamente seleccionándolo en la sección anterior o se pueden copiar y pegar a un archivo customizado
+
+---
+
+## {.smaller}
+Una vez seleccionado un archivo de ordenes valido, ejecute el proceso de verificación de ordenes
+Este proceso revisa si alguna orden ya se ha programado anteriormente en cuyo caso muestra una lista
+Solo se toman en cuenta ordenes con estatus diferente de blanco, cualquier orden sin estatus se sobre escribe. 
+![](/image/manufacturing_plan/manufacturing_plan_verify_orders.png)
+
+---
+
+## {.smaller}
+El botón Crear Plan genera el archivo **"manufacturing plan.xlsx"**
+![](/image/manufacturing_plan/manufacturing_plan.png)
+Utilice este archivo para dar seguimiento a las ordenes cambiando el Status y la columna end_date para indicar si la orden se completo y cuando.
+
+---
+
+## {.smaller}
+El proceso puede generar errores en caso de que el router o la maquina no este definida
+![](/image/manufacturing_plan/manufacturing_plan_errors.png)
+
+
+---
+
+## {.smaller}
+De click en el botón Generar Reportes para crear los archivos para producción con el nombre:
+**"reporte de manufactura {Maquina} {fecha}.xlsx"**
+![](/image/manufacturing_plan/manufacturing_plan_report.png)
+
+---
+
+Finalmente el botón Validar plan, actualizara el plan de manufactura y la lista de ordenes en la columna Status con la palabra "Planeada".
+Esto significa que las ordenes están congeladas y no se volverán a planear en la siguiente iteración de proceso.
+Otro estatus pueden ser "Incompleta", en este caso, parte de la orden ya se encuentra planeada pero la disponibilidad de las maquinas no permitió agregar cierta cantidad
+Esta orden se integrara al plan en la siguiente iteración.
+
+
