@@ -12,6 +12,11 @@ manufacturing_plan = st.Page(
 local_shipments = st.Page(
     "Herramientas/local_shipments_l.py", title="Seguimiento a embarques", icon=":material/local_shipping:"
 )
+
+carga_demanda = st.Page(
+    "Herramientas/carga_demanda_l.py", title="Cargar demanda", icon=":material/app_registration:"
+)
+
 doc = st.Page(
     "Documentacion/plan_de_manufactura_doc.py", title="Plan de manufactura", icon=":material/edit_calendar:"
 )
@@ -19,7 +24,7 @@ doc = st.Page(
 pg = st.navigation(
     {
         "Indice": [scripts_catalog],
-        "Herrramientas": [manufacturing_plan, local_shipments],
+        "Herrramientas": [manufacturing_plan, local_shipments, carga_demanda],
         "Documentacion": [doc],
     }
 )
