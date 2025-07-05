@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 # path to your repo
-REPO_PATH = Path(__file__).parent
+REPO_PATH = Path(__file__).parent.parent
 
 GIT_EXE = REPO_PATH.parent.parent / "mingit" / "cmd" / "git.exe"
 
