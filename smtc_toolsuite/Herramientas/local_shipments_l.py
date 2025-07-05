@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V48. 2025-07-05
+    - Se agrega columna OH CUU
 - V47. 2025-06-10
     - Correccion de fechas de cortos, si hay en blanco se deja corto y en blanco
 - V46. 2025-06-04
@@ -739,8 +741,11 @@ def update_sheet(ws_dict, ws, apply_formats=True):
             continue
         formats=df_formats.loc[i,format_columns].dropna()
         for col in formats.keys():
+            col_name = col[0:-5]
+            if col_name not in header_columns:
+                continue
             current_row = start_data_row + i
-            cell = ws.cell(row=current_row, column=header_columns.index(col[0:-5])+1)
+            cell = ws.cell(row=current_row, column=header_columns.index(col_name)+1)
             format_cell(cell,formats[col])
     
     # Write formulas and copy them down using Translator
@@ -1612,6 +1617,7 @@ def update_oor():
 
     if path_oh_max!="Not selected":
         # Se actualiza el OH Max para todo el workbook ya que la formula toma en cuenta los embarcados y duplicados
+        df_locations=read_excel(output_paths['path_xl_format'],sheet_name='locations')
         msg_oor_update.info("Integrando OH Max")
         df_oh_max=read_excel(path_oh_max)
         if df_oh_max.shape[1]!=6:
@@ -1622,14 +1628,30 @@ def update_oor():
         df_oh_max['oh_max']=pd.to_numeric(df_oh_max['oh_max'])
         df_oh_max=df_oh_max[~df_oh_max['stock_id'].str.upper().str.strip().isin(['KITS','PURGE','OUT','PP'])]
         df_oh_max=rename_columns(df_oh_max,df_col_rel,table_from='OH Max',sheet_from='only',table_to='OOR Report',sheet_to='OOR')
+        df_locations.drop_duplicates('location',inplace=True)
+        df_oh_max=df_oh_max.merge(df_locations,how='left',left_on='stock_id',right_on='location')
+        df_oh_max['site'].fillna('Other',inplace=True)
+
+        df_oh_max=df_oh_max.pivot_table(
+            index='ProductServiceID',
+            columns='site',
+            values='OH MAX',
+            aggfunc='sum'
+        ).reset_index()
+        df_oh_max.rename(columns={'Other':'OH MAX','CUU':'OH CUU'},inplace=True)
         df_oh_max=df_oh_max.groupby(['ProductServiceID']).sum('OH MAX')
-        df_oh_max.reset_index(inplace=True)
+        # df_oh_max.reset_index(inplace=True)
         if 'OH MAX' in df_oor_old.columns:
             df_oor_old.drop(columns='OH MAX',inplace=True)
+        if 'OH CUU' in df_oor_old.columns:
+            df_oor_old.drop(columns='OH CUU',inplace=True)
         df_oor_old=df_oor_old.merge(df_oh_max,how='left',on='ProductServiceID')
         if not 'OH MAX' in df_oor_old.columns:
             df_oor_old['OH MAX']=0    
+        if not 'OH CUU' in df_oor_old.columns:
+            df_oor_old['OH CUU']=0   
         df_oor_old['OH MAX'].fillna(0,inplace=True)
+        df_oor_old['OH CUU'].fillna(0,inplace=True)
 
     df_oor_old=df_oor_old.merge(df_edi_rec_dates,how='left',on=key_cols,suffixes=('', '_new'))
     df_oor_old.loc[df_oor_old['EDI Received'].isna(),'EDI Received']=df_oor_old.loc[df_oor_old['EDI Received'].isna(),'EDI Received_new']

@@ -12,7 +12,7 @@ from local_shipments_l import  *
 state=load_state_pickle()
 #%%
 state
-
+#%%
 st.write("Ejecutando función: Explorar Outlook")
 # Ensure a folder was selected from Outlook
 if "mail_folder" not in st.session_state or st.session_state.mail_folder is None:
@@ -582,13 +582,10 @@ df_oor_old=pd.concat([df_oor_old,df_oor])
 df_oor_old.reset_index(drop=True,inplace=True)
 #%%
 path_oh_max=get_path(state,'OH Max')
-df_oh_max=read_excel(path_oh_max,header=None)
-
-
 if path_oh_max!="Not selected":
     # Se actualiza el OH Max para todo el workbook ya que la formula toma en cuenta los embarcados y duplicados
+    df_locations=read_excel(output_paths['path_xl_format'],sheet_name='locations')
     df_oh_max=read_excel(path_oh_max)
-
     if df_oh_max.shape[1]!=6:
         print("Numero incorrecto de columnas en OH Max")
     df_oh_max.columns=['modelo','description','oh_max','uom','stock_id','zone']
@@ -596,14 +593,31 @@ if path_oh_max!="Not selected":
     df_oh_max['oh_max']=pd.to_numeric(df_oh_max['oh_max'])
     df_oh_max=df_oh_max[~df_oh_max['stock_id'].str.upper().str.strip().isin(['KITS','PURGE','OUT','PP'])]
     df_oh_max=rename_columns(df_oh_max,df_col_rel,table_from='OH Max',sheet_from='only',table_to='OOR Report',sheet_to='OOR')
-    df_oh_max=df_oh_max.groupby(['ProductServiceID']).sum('OH MAX')
+    df_locations.drop_duplicates('location',inplace=True)
+    df_oh_max=df_oh_max.merge(df_locations,how='left',left_on='stock_id',right_on='location')
+    df_oh_max['site'].fillna('Other',inplace=True)
+
+    df_oh_max=df_oh_max.pivot_table(
+        index='ProductServiceID',
+        columns='site',
+        values='OH MAX',
+        aggfunc='sum'
+    ).reset_index()
+    df_oh_max.rename(columns={'Other':'OH MAX','CUU':'OH CUU'},inplace=True)
     df_oh_max.reset_index(inplace=True)
     if 'OH MAX' in df_oor_old.columns:
         df_oor_old.drop(columns='OH MAX',inplace=True)
+    if 'OH CUU' in df_oor_old.columns:
+        df_oor_old.drop(columns='OH CUU',inplace=True)
     df_oor_old=df_oor_old.merge(df_oh_max,how='left',on='ProductServiceID')
     if not 'OH MAX' in df_oor_old.columns:
         df_oor_old['OH MAX']=0    
+    if not 'OH CUU' in df_oor_old.columns:
+        df_oor_old['OH CUU']=0    
     df_oor_old['OH MAX'].fillna(0,inplace=True)
+    df_oor_old['OH CUU'].fillna(0,inplace=True)
+#%%
+df_oor_old[['ProductServiceID','OH MAX','OH CUU']]
 #%%
 df_oor_old=df_oor_old.merge(df_edi_rec_dates,how='left',on=key_cols,suffixes=('', '_new'))
 #%%
