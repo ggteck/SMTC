@@ -2648,7 +2648,7 @@ try:
     st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
 except StreamlitAPIException:
     pass
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V47. 2025-06-10</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V48. 2025-07-05</div>", unsafe_allow_html=True)
 st.title("Seguimiento a Embarques")
 path_pickle=os.path.join(Path(__file__).parent,'folder_state_local_shipments.pkl')
 # Load state and update if needed
