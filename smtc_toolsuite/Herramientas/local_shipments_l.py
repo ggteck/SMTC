@@ -2076,6 +2076,7 @@ def actualizar_status():
             continue
         df_oor_stat[col] = pd.to_datetime(df_oor_stat[col], errors='coerce')
     df_oor_status_final=apply_dynamic_rules(df=df_oor_stat,rules_df=df_conditions,target_col='status_new')
+    df_oor_status_final.to_excel("status.xlsx")
     df_oor_status_final=df_oor_status_final[['po','modelo','dz','LineNumber','status_new']]
     df_oor_status_final.drop_duplicates(['po','modelo','dz','LineNumber'],inplace=True,keep='last')
     # df_oor_status_final=rename_columns(df_oor_status_final,table_to='OOR Report',sheet_to='OOR',df_col_rel=df_col_rel)
