@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V49. 2025-07-23
+    - Se corrige manejo de fechas
 - V48. 2025-07-05
     - Se agrega columna OH CUU
 - V47. 2025-06-10
@@ -2092,8 +2094,40 @@ def actualizar_status():
 
 
     # Actualizar fecha: Last commit date
+    # Here we try to answer, why the PO cannot go and when we expect it to go
+    # It cannot go in case of three status: In shipping plan (waiting for acc), In shipping plan_c1, Short
+    # We need to define here the different dates of release
+
     df_short_dates=df_oor.copy()
-    df_short_dates=df_short_dates[['po','fixt_gp_eta','acc_gp_eta','estimated_move_date_cuu']]
+    # Estimated move date is appliccable only for fixtures, when they have not been moved and they have work order
+    date_cols=['estimated_move_date_cuu','fixt_gp_eta','acc_gp_eta']
+    for col in date_cols:
+        df_short_dates[col]=df_short_dates[col].fillna(pd.Timestamp('2099-12-31'))
+
+    df_estimated_move=df_short_dates[(~df_short_dates['family'].fillna('').str.lower().str.contains('access'))&
+                                    (df_short_dates['balance_to_move']>0)][['po','estimated_move_date_cuu']]
+    df_estimated_move = (
+        df_estimated_move
+            .groupby('po', as_index=False)
+            .agg({col: max for col in ['estimated_move_date_cuu']})
+    )
+
+    # fixt_gp_eta applies for fixtures only, is the accessory missing for the fixture
+    df_fixtures_dates=df_short_dates[(~df_short_dates['family'].fillna('').str.lower().str.contains('access'))][['po','fixt_gp_eta']]
+    df_fixtures_dates = (
+        df_fixtures_dates
+            .groupby('po', as_index=False)
+            .agg({col: max for col in ['fixt_gp_eta']})
+    )
+
+    # acc_gp_eta applies for all that says Acc Short?
+    df_acc_gp_eta=df_short_dates[df_short_dates['accessory_gating_part'].fillna('').str.lower().str.contains('short')][['po','acc_gp_eta']]
+    df_acc_gp_eta = (
+        df_acc_gp_eta
+            .groupby('po', as_index=False)
+            .agg({col: max for col in ['acc_gp_eta']})
+    )
+    df_short_dates=df_short_dates[['po']].drop_duplicates().merge(df_estimated_move,how='left',on='po').merge(df_fixtures_dates,how='left',on='po').merge(df_acc_gp_eta,how='left',on='po')
     df_short_dates['fixt_gp_eta_7_days']=pd.to_datetime(df_short_dates['fixt_gp_eta'], errors='coerce')+state.get('fixture_eta_gap')*BDay()
     df_short_dates['acc_gp_eta_2_days']=pd.to_datetime(df_short_dates['acc_gp_eta'], errors='coerce')+state.get('accessory_eta_gap')*BDay()
     df_short_dates['estimated_move_date_cuu_2_days']=pd.to_datetime(df_short_dates['estimated_move_date_cuu'], errors='coerce')+state.get('accessory_eta_gap')*BDay()
@@ -2102,36 +2136,22 @@ def actualizar_status():
     # Max datefor In shipping plan Case2
     df_short_dates['max_date_ship_c2']=df_short_dates[['estimated_move_date_cuu_2_days','acc_gp_eta_2_days']].max(axis=1)
     df_short_dates.drop(columns=['fixt_gp_eta','acc_gp_eta','estimated_move_date_cuu'],inplace=True)
-    # df_short_dates=df_short_dates.groupby('po').max().reset_index()
-    def max_or_null(s: pd.Series):
-        """
-        Return NaT if the group contains at least one null,
-        otherwise return the maximum value.
-        """
-        return s.max() if s.notna().all() else pd.NaT
 
-    date_cols = [
-        'fixt_gp_eta_7_days',
-        'acc_gp_eta_2_days',
-        'estimated_move_date_cuu_2_days',
-        'max_date_short',
-        'max_date_ship_c2'
-    ]
-
-    df_short_dates = (
-        df_short_dates
-            .groupby('po', as_index=False)
-            .agg({col: max_or_null for col in date_cols})
-    )
+    # def max_or_null(s: pd.Series):
+    #     """
+    #     Return NaT if the group contains at least one null,
+    #     otherwise return the maximum value.
+    #     """
+    #     return s.max() if s.notna().all() else pd.NaT
 
     df_oor['latest_commit_date']=None
     df_oor=df_oor.merge(df_short_dates,how='left',on=['po'])
-
 
     # Update latest commit date
     df_oor.loc[df_oor['oor_status']=='Shortage','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='Shortage','max_date_short']
     df_oor.loc[df_oor['oor_status']=='In shipping plan_c1','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='In shipping plan_c1','estimated_move_date_cuu_2_days']
     df_oor.loc[df_oor['oor_status']=='In shipping plan (waiting for acc)','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='In shipping plan (waiting for acc)','max_date_ship_c2']
+    df_oor.loc[df_oor['latest_commit_date']>=datetime(2099,12,31),'latest_commit_date']=''
     # df_oor.loc[df_oor['oor_status']=='Ready to ship','latest_commit_date']=df_oor.loc[df_oor['oor_status']=='Ready to ship','acc_gp_eta_2_days']
     df_oor['oor_status']=df_oor['oor_status'].str.replace('_c1','').str.replace('_c2','')
 
