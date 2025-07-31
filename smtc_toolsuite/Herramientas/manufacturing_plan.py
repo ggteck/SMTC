@@ -468,6 +468,89 @@ def orders_priority():
     df_order_list_proposed.to_excel(path_order_list_proposed,index=False)    
     os.startfile(path_order_list_proposed)
 
+def machine_selection(valid_part_numbers:list):
+    df_columns = read_excel(st.session_state.output_paths['path_xl_format'], sheet_name='column_equivalence')
+    normalizer=ExcelNormalizer(df_columns)
+    df_master=normalizer.normalize_folder(state['folder_master'])
+    df_master=df_master[df_master['part_number'].isin(valid_part_numbers)]
+    df_master['operation']=df_master['operation'].fillna(df_master['file_name_like'])
+    df_master.fillna('',inplace=True)
+    df_master=df_master[df_master['part_number']!='']
+    machine_cols = [c for c in df_master.columns if c.startswith("maq_")]
+    part_numbers = {}
+    for pn, grp in df_master[df_master['file_name_like']=='Insertos'].groupby("part_number"):
+        ops = {}
+        for idx, (op_name, sub) in enumerate(grp.groupby("operation"), start=1):
+            # collect all machine values from the maq_* columns
+            machines_raw = (
+                sub[machine_cols]
+                .apply(lambda row: [v for v in row.tolist() if pd.notna(v) and v != ""], axis=1)
+                .explode()
+                .tolist()
+            )
+            # remove duplicates while preserving order
+            unique_machines = list(dict.fromkeys(machines_raw))
+            # initialize machines as dicts with default "0" value
+            machines = [{m: "0"} for m in unique_machines]
+            ops[str(idx)] = {"name": op_name, "machines": machines}
+        part_numbers[pn] = {"operations": ops}
+
+
+    st.title("Machine Selection")
+
+    # Build tree nodes: Part Numbers → Operations → Machines
+    nodes = []
+    for pn, content in part_numbers.items():
+        op_nodes = []
+        for op_id, op in content["operations"].items():
+            machine_nodes = []
+            for m_dict in op["machines"]:
+                m_name = list(m_dict.keys())[0]
+                machine_nodes.append({"label": m_name, "value": f"{pn}::{op_id}::{m_name}"})
+            op_nodes.append({
+                "label": f"{op_id}. {op['name']}",
+                "value": f"{pn}::{op_id}",
+                "children": machine_nodes,
+            })
+        nodes.append({"label": pn, "value": pn, "children": op_nodes})
+
+    # Initialize session state for checked selections with defaults from part_numbers
+    if "checked" not in st.session_state:
+        default_checked = []
+        for pn, content in part_numbers.items():
+            for op_id, op in content["operations"].items():
+                for m_dict in op["machines"]:
+                    m_name = list(m_dict.keys())[0]
+                    if m_dict[m_name] == "1":
+                        default_checked.append(f"{pn}::{op_id}::{m_name}")
+        st.session_state.checked = default_checked
+
+    # Render tree-select component
+    result = tree_select(
+        nodes,
+        check_model="leaf",            # only machines are selectable
+        checked=st.session_state.checked,
+        only_leaf_checkboxes=True,
+        no_cascade=True,                # parent checks don't affect children
+        show_expand_all=True,
+    )
+    raw_checked = result.get("checked", [])
+
+    # Build updated part_numbers reflecting user selections
+    updated = {}
+    for pn, content in part_numbers.items():
+        updated[pn] = {"operations": {}}
+        for op_id, op in content["operations"].items():
+            new_machines = []
+            for m_dict in op["machines"]:
+                m_name = list(m_dict.keys())[0]
+                new_val = "1" if f"{pn}::{op_id}::{m_name}" in raw_checked else "0"
+                new_machines.append({m_name: new_val})
+            updated[pn]["operations"][op_id] = {
+                "name": op["name"],
+                "machines": new_machines,
+            }
+
 def verify_order_list():
     df_columns=st.session_state.df_columns
     df_col_rel=st.session_state.df_col_rel
@@ -492,9 +575,10 @@ def verify_order_list():
     df_already_planned=get_common_records(df_new=df_order_list,df_old=df_plan_old,keys=['wo','pn'])
     if len(df_already_planned)==0:
         st.info("Ok")
-        return
-    st.info("Las siguientes ordenes ya estan planeadas, continue si desea agregarlas al nuevo plan con cantidad diferente")
-    st.dataframe(df_already_planned)
+    else:
+        st.info("Las siguientes ordenes ya estan planeadas, continue si desea agregarlas al nuevo plan con cantidad diferente")
+        st.dataframe(df_already_planned)
+    machine_selection(valid_part_numbers=df_order_list['pn'].tolist())
 
 
 def create_plan():
@@ -1017,85 +1101,4 @@ if st.button("Generar reportes"):
 
 if st.button("Validar plan"):
     validate_plan()
-
-df_columns = read_excel(st.session_state.output_paths['path_xl_format'], sheet_name='column_equivalence')
-normalizer=ExcelNormalizer(df_columns)
-df_master=normalizer.normalize_folder(state['folder_master'])
-df_master['operation']=df_master['operation'].fillna(df_master['file_name_like'])
-df_master.fillna('',inplace=True)
-df_master=df_master[df_master['part_number']!='']
-machine_cols = [c for c in df_master.columns if c.startswith("maq_")]
-part_numbers = {}
-for pn, grp in df_master[df_master['file_name_like']=='Insertos'].head().groupby("part_number"):
-    ops = {}
-    for idx, (op_name, sub) in enumerate(grp.groupby("operation"), start=1):
-        # collect all machine values from the maq_* columns
-        machines_raw = (
-            sub[machine_cols]
-            .apply(lambda row: [v for v in row.tolist() if pd.notna(v) and v != ""], axis=1)
-            .explode()
-            .tolist()
-        )
-        # remove duplicates while preserving order
-        unique_machines = list(dict.fromkeys(machines_raw))
-        # initialize machines as dicts with default "0" value
-        machines = [{m: "0"} for m in unique_machines]
-        ops[str(idx)] = {"name": op_name, "machines": machines}
-    part_numbers[pn] = {"operations": ops}
-
-
-st.title("Machine Selection")
-
-# Build tree nodes: Part Numbers → Operations → Machines
-nodes = []
-for pn, content in part_numbers.items():
-    op_nodes = []
-    for op_id, op in content["operations"].items():
-        machine_nodes = []
-        for m_dict in op["machines"]:
-            m_name = list(m_dict.keys())[0]
-            machine_nodes.append({"label": m_name, "value": f"{pn}::{op_id}::{m_name}"})
-        op_nodes.append({
-            "label": f"{op_id}. {op['name']}",
-            "value": f"{pn}::{op_id}",
-            "children": machine_nodes,
-        })
-    nodes.append({"label": pn, "value": pn, "children": op_nodes})
-
-# Initialize session state for checked selections with defaults from part_numbers
-if "checked" not in st.session_state:
-    default_checked = []
-    for pn, content in part_numbers.items():
-        for op_id, op in content["operations"].items():
-            for m_dict in op["machines"]:
-                m_name = list(m_dict.keys())[0]
-                if m_dict[m_name] == "1":
-                    default_checked.append(f"{pn}::{op_id}::{m_name}")
-    st.session_state.checked = default_checked
-
-# Render tree-select component
-result = tree_select(
-    nodes,
-    check_model="leaf",            # only machines are selectable
-    checked=st.session_state.checked,
-    only_leaf_checkboxes=True,
-    no_cascade=True,                # parent checks don't affect children
-    show_expand_all=True,
-)
-raw_checked = result.get("checked", [])
-
-# Build updated part_numbers reflecting user selections
-updated = {}
-for pn, content in part_numbers.items():
-    updated[pn] = {"operations": {}}
-    for op_id, op in content["operations"].items():
-        new_machines = []
-        for m_dict in op["machines"]:
-            m_name = list(m_dict.keys())[0]
-            new_val = "1" if f"{pn}::{op_id}::{m_name}" in raw_checked else "0"
-            new_machines.append({m_name: new_val})
-        updated[pn]["operations"][op_id] = {
-            "name": op["name"],
-            "machines": new_machines,
-        }
 
