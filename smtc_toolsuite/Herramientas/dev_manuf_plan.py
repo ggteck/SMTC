@@ -8,7 +8,8 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from pandas.tseries.offsets import BDay
-state = load_state_pickle()
+from excel_normalizer import ExcelNormalizer
+state = load_state_pickle('folder_state_planner.pkl')
 
 folder_output = state['folder_output']
 file_selectors = state['selections']
@@ -17,7 +18,39 @@ col_rel = set_col_rel(output_paths)
 df_col_rel = col_rel['col_rel']
 df_columns=col_rel['columns']
 #%%
+df_columns = read_excel(output_paths['path_xl_format'], sheet_name='column_equivalence')
+normalizer=ExcelNormalizer(df_columns)
+df_master=normalizer.normalize_folder(state['folder_master'])
+df_master['operation']=df_master['operation'].fillna(df_master['file_name_like'])
+df_master.fillna('',inplace=True)
+df_master=df_master[df_master['part_number']!='']
+df_master.drop(columns=['file_name_like']).head().to_clipboard(index=False)
+machine_cols = [c for c in df_master.columns if c.startswith("maq_")]
+part_numbers = {}
+for pn, grp in df_master.groupby("part_number"):
+    ops = {}
+    for idx, (op_name, sub) in enumerate(grp.groupby("operation"), start=1):
+        # collect all machine values from the maq_* columns
+        machines = (
+            sub[machine_cols]
+            .apply(lambda row: [v for v in row.tolist() if pd.notna(v) and v != ""], axis=1)
+            .explode()
+            .tolist()
+        )
+        # remove duplicates, preserve order
+        machines = list(dict.fromkeys(machines))
+        ops[str(idx)] = {"name": op_name, "machines": machines}
+    part_numbers[pn] = {"operations": ops}
+#%%
 
+#%%
+"""
+- maquinas por numero de parte y operacion
+- operaciones por numero de parte
+- secuencia de operaciones
+- turnos?
+"""
+#%%
 if not os.path.exists(output_paths['path_xl_format']):
     print("No se encuentra el archivo: columns and formatting.xlsx")
     raise SystemExit()
@@ -427,4 +460,3 @@ df_order_list_proposed.to_excel(os.path.join(state['folder_output'],'Lista de Or
 #%%
 df_plan_new=get_predefined_df(df_columns=df_columns,table='Manufacturing plan')
 #%%%
-df_plan_new.columns
