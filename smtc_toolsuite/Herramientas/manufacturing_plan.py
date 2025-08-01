@@ -52,9 +52,10 @@ import win32com.client
 from pandas.tseries.offsets import BDay
 from openpyxl import load_workbook 
 from pathlib import Path
-from streamlit.errors import StreamlitAPIException 
+from streamlit.errors import StreamlitAPIException
 from streamlit_tree_select import tree_select
 from Herramientas.excel_normalizer import ExcelNormalizer
+from difflib import SequenceMatcher
 _THIS_PAGE = Path(__file__).stem        # e.g. "manufacturing_plan"
 
 prev = st.session_state.get("_active_page")
@@ -468,88 +469,140 @@ def orders_priority():
     df_order_list_proposed.to_excel(path_order_list_proposed,index=False)    
     os.startfile(path_order_list_proposed)
 
-def machine_selection(valid_part_numbers:list):
-    df_columns = read_excel(st.session_state.output_paths['path_xl_format'], sheet_name='column_equivalence')
-    normalizer=ExcelNormalizer(df_columns)
-    df_master=normalizer.normalize_folder(state['folder_master'])
-    df_master=df_master[df_master['part_number'].isin(valid_part_numbers)]
-    df_master['operation']=df_master['operation'].fillna(df_master['file_name_like'])
-    df_master.fillna('',inplace=True)
-    df_master=df_master[df_master['part_number']!='']
+def machine_selection(valid_part_numbers: list):
+    df_columns = read_excel(
+        st.session_state.output_paths["path_xl_format"], sheet_name="column_equivalence"
+    )
+    normalizer = ExcelNormalizer(df_columns)
+    df_master = normalizer.normalize_folder(state["folder_master"])
+    df_master = df_master[df_master["part_number"].isin(valid_part_numbers)]
+    df_master["operation"] = df_master["operation"].fillna(
+        df_master["file_name_like"]
+    )
+    df_master.fillna("", inplace=True)
+    df_master = df_master[df_master["part_number"] != ""]
     machine_cols = [c for c in df_master.columns if c.startswith("maq_")]
+
     part_numbers = {}
-    for pn, grp in df_master[df_master['file_name_like']=='Insertos'].groupby("part_number"):
+    for pn, grp in df_master[df_master["file_name_like"] == "Insertos"].groupby(
+        "part_number"
+    ):
         ops = {}
         for idx, (op_name, sub) in enumerate(grp.groupby("operation"), start=1):
-            # collect all machine values from the maq_* columns
             machines_raw = (
                 sub[machine_cols]
-                .apply(lambda row: [v for v in row.tolist() if pd.notna(v) and v != ""], axis=1)
+                .apply(
+                    lambda row: [v for v in row.tolist() if pd.notna(v) and v != ""],
+                    axis=1,
+                )
                 .explode()
                 .tolist()
             )
-            # remove duplicates while preserving order
             unique_machines = list(dict.fromkeys(machines_raw))
-            # initialize machines as dicts with default "0" value
             machines = [{m: "0"} for m in unique_machines]
             ops[str(idx)] = {"name": op_name, "machines": machines}
         part_numbers[pn] = {"operations": ops}
 
-
     st.title("Machine Selection")
 
-    # Build tree nodes: Part Numbers → Operations → Machines
+    # Persist selections
+    if "updated" not in st.session_state:
+        st.session_state.updated = deepcopy(part_numbers)
+    state_dict = st.session_state.updated
+
+    # Build tree nodes from persisted state
     nodes = []
-    for pn, content in part_numbers.items():
+    for pn, content in state_dict.items():
         op_nodes = []
         for op_id, op in content["operations"].items():
             machine_nodes = []
             for m_dict in op["machines"]:
                 m_name = list(m_dict.keys())[0]
-                machine_nodes.append({"label": m_name, "value": f"{pn}::{op_id}::{m_name}"})
-            op_nodes.append({
-                "label": f"{op_id}. {op['name']}",
-                "value": f"{pn}::{op_id}",
-                "children": machine_nodes,
-            })
+                machine_nodes.append(
+                    {"label": m_name, "value": f"{pn}::{op_id}::{m_name}"}
+                )
+            op_nodes.append(
+                {
+                    "label": f"{op_id}. {op['name']}",
+                    "value": f"{pn}::{op_id}",
+                    "children": machine_nodes,
+                }
+            )
         nodes.append({"label": pn, "value": pn, "children": op_nodes})
 
-    # Initialize session state for checked selections with defaults from part_numbers
-    if "checked" not in st.session_state:
-        default_checked = []
-        for pn, content in part_numbers.items():
-            for op_id, op in content["operations"].items():
-                for m_dict in op["machines"]:
-                    m_name = list(m_dict.keys())[0]
-                    if m_dict[m_name] == "1":
-                        default_checked.append(f"{pn}::{op_id}::{m_name}")
-        st.session_state.checked = default_checked
+    # Text box for filtering nodes
+    query = st.text_input("Filtrar", "")
+
+    def _match(label: str) -> bool:
+        label_low = label.lower()
+        q = query.lower()
+        if not q:
+            return True
+        if q in label_low:
+            return True
+        return SequenceMatcher(None, q, label_low).ratio() >= 0.6
+
+    def _filter_nodes(nlist):
+        if not query:
+            return nlist
+        filtered = []
+        for n in nlist:
+            children = n.get("children", [])
+            filtered_children = _filter_nodes(children)
+            if _match(n["label"]) or filtered_children:
+                new_n = {k: v for k, v in n.items() if k != "children"}
+                if filtered_children:
+                    new_n["children"] = filtered_children
+                filtered.append(new_n)
+        return filtered
+
+    display_nodes = _filter_nodes(nodes)
+
+    # Collect visible machine keys
+    def _gather_machine_keys(nlist, keys):
+        for n in nlist:
+            if "children" in n:
+                _gather_machine_keys(n["children"], keys)
+            else:
+                keys.append(n["value"])
+        return keys
+
+    visible_keys = _gather_machine_keys(display_nodes, [])
+
+    # Determine currently checked machines
+    default_checked = []
+    for pn, content in state_dict.items():
+        for op_id, op in content["operations"].items():
+            for m_dict in op["machines"]:
+                m_name = list(m_dict.keys())[0]
+                if m_dict[m_name] == "1":
+                    default_checked.append(f"{pn}::{op_id}::{m_name}")
+    checked_filtered = [v for v in default_checked if v in visible_keys]
 
     # Render tree-select component
     result = tree_select(
-        nodes,
-        check_model="leaf",            # only machines are selectable
-        checked=st.session_state.checked,
+        display_nodes,
+        check_model="leaf",
+        checked=checked_filtered,
         only_leaf_checkboxes=True,
-        no_cascade=True,                # parent checks don't affect children
+        no_cascade=True,
         show_expand_all=True,
+        key="machine_tree",
     )
     raw_checked = result.get("checked", [])
 
-    # Build updated part_numbers reflecting user selections
-    updated = {}
-    for pn, content in part_numbers.items():
-        updated[pn] = {"operations": {}}
-        for op_id, op in content["operations"].items():
-            new_machines = []
-            for m_dict in op["machines"]:
-                m_name = list(m_dict.keys())[0]
-                new_val = "1" if f"{pn}::{op_id}::{m_name}" in raw_checked else "0"
-                new_machines.append({m_name: new_val})
-            updated[pn]["operations"][op_id] = {
-                "name": op["name"],
-                "machines": new_machines,
-            }
+    # Update state for visible nodes only
+    for val in visible_keys:
+        pn, op_id, m_name = val.split("::")
+        new_val = "1" if val in raw_checked else "0"
+        machines = state_dict[pn]["operations"][op_id]["machines"]
+        for m_dict in machines:
+            if m_name in m_dict:
+                m_dict[m_name] = new_val
+                break
+
+    st.session_state.updated = state_dict
+    updated = state_dict
 
 def verify_order_list():
     df_columns=st.session_state.df_columns
