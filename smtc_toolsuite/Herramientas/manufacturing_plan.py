@@ -607,6 +607,8 @@ def machine_selection(valid_part_numbers: list):
 def verify_order_list():
     df_columns=st.session_state.df_columns
     df_col_rel=st.session_state.df_col_rel
+    if 'updated' in st.session_state:
+        del st.session_state['updated']
     #% Open order list
     path_order_list = st.session_state.selected_paths['order_file']
     df_order_list = load_excel_with_header_key(path_order_list, key_text='Priority')
@@ -631,7 +633,6 @@ def verify_order_list():
     else:
         st.info("Las siguientes ordenes ya estan planeadas, continue si desea agregarlas al nuevo plan con cantidad diferente")
         st.dataframe(df_already_planned)
-    machine_selection(valid_part_numbers=df_order_list['pn'].tolist())
 
 
 def create_plan():
@@ -1126,6 +1127,9 @@ if st.button("Sugerir prioridades"):
 
 if st.button("Verificar ordenes"):
     verify_order_list()
+
+if "df_order_list" in st.session_state:
+    machine_selection(valid_part_numbers=st.session_state.df_order_list['pn'].tolist())
 
 selected_date = st.date_input("Fecha inicial de programacion", value=state.get("initial_date", datetime.date.today()))
 if selected_date != state.get("initial_date", datetime.date.today()):
