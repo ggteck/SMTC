@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V50. 2025-08-04
+    - Se corrige bug en df_ship_cust_new['is_shipped']
 - V49. 2025-07-23
     - Se corrige manejo de fechas
 - V48. 2025-07-05
@@ -1279,6 +1281,7 @@ def update_edi():
     if path_ship_cust_new!='Not selected':
         df_ship_cust_new=load_excel_with_header_key(path_ship_cust_new,sheet_name='Embarques from ELP',key_text='Fecha de Embarque')
         df_ship_cust_new=rename_columns(df_ship_cust_new,df_col_rel=df_col_rel,table_from='ELP Master',sheet_from='Embarques from ELP')
+        df_ship_cust_new['is_shipped']=df_ship_cust_new['is_shipped'].fillna('')
         df_ship_cust_new=df_ship_cust_new[df_ship_cust_new['is_shipped'].str.upper().str.contains('YES')]
         df_ship_cust_new=df_ship_cust_new[~df_ship_cust_new['po'].isna()]
         df_ship_cust_new['modelo']=df_ship_cust_new['modelo'].str.upper()
@@ -2669,7 +2672,7 @@ try:
     st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
 except StreamlitAPIException:
     pass
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V49. 2025-07-23</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V50. 2025-08-04</div>", unsafe_allow_html=True)
 st.title("Seguimiento a Embarques")
 path_pickle=os.path.join(Path(__file__).parent,'folder_state_local_shipments.pkl')
 # Load state and update if needed
