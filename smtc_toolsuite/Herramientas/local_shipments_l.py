@@ -1281,7 +1281,7 @@ def update_edi():
     if path_ship_cust_new!='Not selected':
         df_ship_cust_new=load_excel_with_header_key(path_ship_cust_new,sheet_name='Embarques from ELP',key_text='Fecha de Embarque')
         df_ship_cust_new=rename_columns(df_ship_cust_new,df_col_rel=df_col_rel,table_from='ELP Master',sheet_from='Embarques from ELP')
-        df_ship_cust_new['is_shipped']=df_ship_cust_new['is_shipped'].fillna('')
+        df_ship_cust_new['is_shipped']=df_ship_cust_new['is_shipped'].fillna('').astype(str)
         df_ship_cust_new=df_ship_cust_new[df_ship_cust_new['is_shipped'].str.upper().str.contains('YES')]
         df_ship_cust_new=df_ship_cust_new[~df_ship_cust_new['po'].isna()]
         df_ship_cust_new['modelo']=df_ship_cust_new['modelo'].str.upper()
