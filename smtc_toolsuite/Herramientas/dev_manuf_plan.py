@@ -9,6 +9,12 @@ from openpyxl.styles import PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from pandas.tseries.offsets import BDay
 from excel_normalizer import ExcelNormalizer
+import uuid
+
+#%%
+
+#%%
+
 state = load_state_pickle('folder_state_planner.pkl')
 
 folder_output = state['folder_output']
@@ -17,39 +23,38 @@ output_paths = set_paths(folder_output)
 col_rel = set_col_rel(output_paths)
 df_col_rel = col_rel['col_rel']
 df_columns=col_rel['columns']
-#%%
-df_columns = read_excel(output_paths['path_xl_format'], sheet_name='column_equivalence')
-normalizer=ExcelNormalizer(df_columns)
+df_column_equivalence=col_rel['column_equivalence']
+df_master_operation_relation=col_rel['master_operation_relation']
+
+#% Get masters data
+normalizer=ExcelNormalizer(df_column_equivalence)
 df_master=normalizer.normalize_folder(state['folder_master'])
-df_master['operation']=df_master['operation'].fillna(df_master['file_name_like'])
 df_master.fillna('',inplace=True)
-df_master=df_master[df_master['part_number']!='']
-df_master.drop(columns=['file_name_like']).head().to_clipboard(index=False)
+#%%
+df_master=df_master[df_master['pn']!='']
 machine_cols = [c for c in df_master.columns if c.startswith("maq_")]
 part_numbers = {}
-for pn, grp in df_master.groupby("part_number"):
+for pn, grp in df_master.groupby(
+    "pn"
+):
     ops = {}
-    for idx, (op_name, sub) in enumerate(grp.groupby("operation"), start=1):
-        # collect all machine values from the maq_* columns
-        machines = (
+    for idx, (op_name, sub) in enumerate(grp.groupby("operation_description"), start=1):
+        machines_raw = (
             sub[machine_cols]
-            .apply(lambda row: [v for v in row.tolist() if pd.notna(v) and v != ""], axis=1)
+            .apply(
+                lambda row: [v for v in row.tolist() if pd.notna(v) and v != ""],
+                axis=1,
+            )
             .explode()
             .tolist()
         )
-        # remove duplicates, preserve order
-        machines = list(dict.fromkeys(machines))
+        unique_machines = list(dict.fromkeys(machines_raw))
+        # machines = [{m: "1"} if idx == 0 else {m: "0"} for idx, m in enumerate(unique_machines)]
+        machines = [{m: "1"} for  m in unique_machines]
         ops[str(idx)] = {"name": op_name, "machines": machines}
     part_numbers[pn] = {"operations": ops}
 #%%
 
-#%%
-"""
-- maquinas por numero de parte y operacion
-- operaciones por numero de parte
-- secuencia de operaciones
-- turnos?
-"""
 #%%
 if not os.path.exists(output_paths['path_xl_format']):
     print("No se encuentra el archivo: columns and formatting.xlsx")
@@ -72,6 +77,21 @@ path_routing = file_selectors['routing_file']
 df_routing = load_excel_with_header_key(path_routing, sheet_name='Operations', key_text='Routing')
 df_routing = rename_columns(df_routing, df_col_rel, table_from='Routing', sheet_from='Operations')
 df_routing['operation_description']=df_routing['operation_description'].str.upper()
+
+df_master['operation_description']=df_master['operation_description'].str.upper()
+blanks_idx=(df_master['operation_description']=='')
+df_master_1=df_master[blanks_idx]
+df_master_2=df_master[~blanks_idx]
+df_master_1=df_master_1.drop(columns=['operation_description']).merge(df_master_operation_relation,how='left',on=['file_name_like'],)
+df_master_1['operation_description']=df_master_1['operation_description'].fillna('')
+df_master=pd.concat([df_master_1,df_master_2])
+df_master.reset_index(drop=True,inplace=True)
+df_master['composite_key']=list(zip(*(df_master[col] for col in ['pn','operation_description'])))
+df_routing['composite_key']=list(zip(*(df_routing[col] for col in ['pn','operation_description'])))
+df_master=df_master[df_master['composite_key'].isin(df_routing['composite_key'])]
+df_master.drop(columns=['composite_key'],inplace=True)
+
+#%%
 # Equivalencias
 path_equiv = st.session_state.selected_paths['equivalencias_file']
 df_equiv=read_predefined_excel(path_equiv,df_columns,table='Equivalencias')
@@ -86,7 +106,6 @@ df_order_list['operation_description']=df_order_list['operation_description'].st
 df_order_list['pn_orig']=df_order_list['pn']
 df_order_list['pn']=df_order_list['pn'].replace(dict_equiv)
 check_mandatory_columns_df(df_order_list.columns,df_columns=df_columns,table='Lista de ordenes')
-
 df_missing_rout=get_common_records(df_order_list,df_routing,keys=['pn','operation_description'],how='uncommon')
 df_order_list['composite_key'] = list(zip(*(df_order_list[col] for col in ['pn','operation_description'])))
 df_routing['composite_key'] = list(zip(*(df_routing[col] for col in ['pn','operation_description'])))
@@ -137,12 +156,24 @@ for avail_dt in all_dates:
         dict_avail_hours_copy=deepcopy(dict_avail_hours)
         slots[(avail_dt, m)]=dict_avail_hours_copy.get((avail_dt, m),dict_avail_hours_copy.get(('default',m)))
 
+
+#%%
+df_master.columns
+df_master_long = df_master.melt(
+    id_vars=['pn','file_name_like','operation_description'],
+    value_vars=[c for c in df_master.columns if c.startswith('maq_')],
+    var_name='maq_col',
+    value_name='maq'
+)
+df_master_long
+#%%
 # 2) Prepare
 assignments    = []
 pn_to_machine  = {}    # first‐machine lock per PN
 wo_next_start  = {}    # earliest allowed timestamp per WO
 wo_last_machine = {}    # last machine used per WO
 machine_status = {}
+
 df_order_list.sort_values('priority', inplace=True)
 
 # prebuild full set of dates we may need
@@ -152,138 +183,149 @@ for _, order in df_order_list.iterrows():
     pn            = order['pn']
     qty           = order['pzas_x_hacer']
     wo            = order['wo']
-    routing_name  = order['operation_description']
+    # routing_name  = order['operation_description']
     machine_def   = order['machine']
     pty           = order['priority']
-
-    # routing info
-    pn_info = df_routing[
-        (df_routing['pn']==pn) & 
-        (df_routing['operation_description']==routing_name)
-    ]
-    if pn_info.empty:
+    if pn not in part_numbers:
+        continue
+    for _,operation in part_numbers[pn]['operations'].items():
+        routing_name=operation['name']
+        # routing info
         pn_info = df_routing[
-            (df_routing['pn']==pn_orig) & 
+            (df_routing['pn']==pn) & 
             (df_routing['operation_description']==routing_name)
         ]
         if pn_info.empty:
-            continue
-    run_time, setup_time = pn_info.iloc[0][['run_time','setup_time']]
-
-    # select machine
-    if machine_def:
-        m_list = [machine_def]
-    elif pn in pn_to_machine:
-        m_list = [pn_to_machine[pn]]
-    else:
-        rows = df_master_doblado[df_master_doblado['pn']==pn]
-        if rows.empty:
-            rows = df_master_doblado[df_master_doblado['pn']==pn_orig]
-            if rows.empty:
+            pn_info = df_routing[
+                (df_routing['pn']==pn_orig) & 
+                (df_routing['operation_description']==routing_name)
+            ]
+            if pn_info.empty:
                 continue
-        m_list = [v for k,v in rows.iloc[0].items() if 'maq_opc' in k and v]
+        run_time, setup_time = pn_info.iloc[0][['run_time','setup_time']]
 
-    # determine earliest start
-    initial_start={"finish_ts":pd.to_datetime(initial_date_str)}
-    start_ts = wo_next_start.get(wo, initial_start)
-    start_ts = start_ts.get("finish_ts")
-    start_shift = wo_next_start.get(wo, initial_start)
-    start_shift = start_shift.get("next_shift","PRIMER TURNO")
-    # start_ts = start_ts.get("finish_ts")
-    last_m   = wo_last_machine.get(wo)
-    
-    # assignment loop
-    for m in m_list:
-        # lock PN → machine on first assignment
-        if pn not in pn_to_machine:
-            pn_to_machine[pn] = m
-
-        # walk through dates until qty is 0 or we pass limit
-        for date_str in all_dates:
-            if qty <= 0:
-                break
-            date_ts = pd.to_datetime(date_str)
-            # if date_ts < start_ts.normalize():
-            #     continue
-            if last_m is None or m != last_m:
-                if date_ts < start_ts.normalize():
-                    continue                
-            if date_ts > limit_date_ts:
-                break
-
-            # get or init that day’s shifts
-            key = (date_str, m)
-            if key in slots:
-                avail_shifts = slots[key]
+        # select machine
+        if machine_def:
+            m_list = [machine_def]
+        elif pn in pn_to_machine:
+            m_list = [pn_to_machine[pn]]
+        else:
+            rows = df_master_doblado[df_master_doblado['pn']==pn]
+            if rows.empty:
+                rows = df_master_doblado[df_master_doblado['pn']==pn_orig]
+                if rows.empty:
+                    continue
+            # m_list = [v for k,v in rows.iloc[0].items() if 'maq_opc' in k and v]
+            m_list = [
+                        m_name
+                        for op in part_numbers[pn]['operations'].values()
+                        for m_dict in op['machines']
+                        for m_name, valid in m_dict.items()
+                        if valid == '1'
+                    ]
 
 
-            # iterate shifts in sorted order
-            for shift in sorted(avail_shifts):
+        # determine earliest start
+        initial_start={"finish_ts":pd.to_datetime(initial_date_str)}
+        start_ts = wo_next_start.get(wo, initial_start)
+        start_ts = start_ts.get("finish_ts")
+        start_shift = wo_next_start.get(wo, initial_start)
+        start_shift = start_shift.get("next_shift","PRIMER TURNO")
+        # start_ts = start_ts.get("finish_ts")
+        last_m   = wo_last_machine.get(wo)
+        
+        # assignment loop
+        for m in m_list:
+            # lock PN → machine on first assignment
+            if pn not in pn_to_machine:
+                pn_to_machine[pn] = m
+
+            # walk through dates until qty is 0 or we pass limit
+            for date_str in all_dates:
                 if qty <= 0:
                     break
-
-                # compute setup only if PN changed vs last service on this machine
-                last_pn = machine_status.get((m,'last_pn'), None)
-                last_oper = machine_status.get((m,'last_oper'), None)
-                need_setup = setup_time if (last_pn != pn or last_oper != routing_name) else 0
-                # can we fit setup+one run?
-                if avail_shifts[shift] < need_setup + run_time:
-                    avail_shifts[shift] = 0
-                    continue
-                shifts_list=list(avail_shifts.keys())
-                if (date_ts == start_ts.normalize())&\
-                    (shifts_list.index(start_shift)>shifts_list.index(shift))&\
-                    (last_m is None or m != last_m):
-                    continue
-                # assign as many as fit this slot
-                effective = avail_shifts[shift] - need_setup
-                pieces   = qty if run_time==0 else min(qty, effective // run_time)
-                if pieces<10:
-                    continue
-                run_used = pieces * run_time
-                total    = run_used + need_setup
-
-                # record it
-                assignments.append({
-                    'date': date_str,
-                    'machine': m,
-                    'shift': shift,
-                    'operation_description': routing_name,
-                    'pn': pn_orig,
-                    'wo': wo,
-                    'priority': pty,
-                    'pzas_x_hacer': pieces,
-                    'time_used': run_used,
-                    'setup_time': need_setup
-                })
-
-                # update slot availability
-                avail_shifts[shift] -= total
-                qty -= pieces
-                # track last_pn for setup logic
-                machine_status[(m,'last_pn')] = pn
-                machine_status[(m,'last_oper')] = routing_name
-                # compute finish timestamp to enforce sequencing
-                finish_ts = date_ts  # + shift end offset if you track that
-                # bump next‐start only when changing machines
+                date_ts = pd.to_datetime(date_str)
+                # if date_ts < start_ts.normalize():
+                #     continue
                 if last_m is None or m != last_m:
+                    if date_ts < start_ts.normalize():
+                        continue                
+                if date_ts > limit_date_ts:
+                    break
+
+                # get or init that day’s shifts
+                key = (date_str, m)
+                if key in slots:
+                    avail_shifts = slots[key]
+
+
+                # iterate shifts in sorted order
+                for shift in sorted(avail_shifts):
+                    if qty <= 0:
+                        break
+
+                    # compute setup only if PN changed vs last service on this machine
+                    last_pn = machine_status.get((m,'last_pn'), None)
+                    last_oper = machine_status.get((m,'last_oper'), None)
+                    need_setup = setup_time if (last_pn != pn or last_oper != routing_name) else 0
+                    # can we fit setup+one run?
+                    if avail_shifts[shift] < need_setup + run_time:
+                        avail_shifts[shift] = 0
+                        continue
                     shifts_list=list(avail_shifts.keys())
-                    shidx=shifts_list.index(shift)
-                    if len(shifts_list)>shidx+1:
-                        next_shift=shifts_list[shidx+1]
-                    else:
-                        finish_ts=finish_ts + BDay(1)
-                        next_shift=shifts_list[0]                
-                    next_start={"finish_ts":finish_ts,
-                                "next_shift":next_shift}
-                    wo_next_start[wo] = next_start
-                # record this machine as last used for the WO
-                wo_last_machine[wo] = m
+                    if (date_ts == start_ts.normalize())&\
+                        (shifts_list.index(start_shift)>shifts_list.index(shift))&\
+                        (last_m is None or m != last_m):
+                        continue
+                    # assign as many as fit this slot
+                    effective = avail_shifts[shift] - need_setup
+                    pieces   = qty if run_time==0 else min(qty, effective // run_time)
+                    if pieces<10:
+                        continue
+                    run_used = pieces * run_time
+                    total    = run_used + need_setup
 
-            # end for shift
-        # end for date
+                    # record it
+                    assignments.append({
+                        'date': date_str,
+                        'machine': m,
+                        'shift': shift,
+                        'operation_description': routing_name,
+                        'pn': pn_orig,
+                        'wo': wo,
+                        'priority': pty,
+                        'pzas_x_hacer': pieces,
+                        'time_used': run_used,
+                        'setup_time': need_setup
+                    })
 
-        break  # once we’ve tried this machine, stop (PN locked)
+                    # update slot availability
+                    avail_shifts[shift] -= total
+                    qty -= pieces
+                    # track last_pn for setup logic
+                    machine_status[(m,'last_pn')] = pn
+                    machine_status[(m,'last_oper')] = routing_name
+                    # compute finish timestamp to enforce sequencing
+                    finish_ts = date_ts  # + shift end offset if you track that
+                    # bump next‐start only when changing machines
+                    if last_m is None or m != last_m:
+                        shifts_list=list(avail_shifts.keys())
+                        shidx=shifts_list.index(shift)
+                        if len(shifts_list)>shidx+1:
+                            next_shift=shifts_list[shidx+1]
+                        else:
+                            finish_ts=finish_ts + BDay(1)
+                            next_shift=shifts_list[0]                
+                        next_start={"finish_ts":finish_ts,
+                                    "next_shift":next_shift}
+                        wo_next_start[wo] = next_start
+                    # record this machine as last used for the WO
+                    wo_last_machine[wo] = m
+
+                # end for shift
+            # end for date
+
+            break  # once we’ve tried this machine, stop (PN locked)
 
 
 df_plan_new=get_predefined_df(df_columns=df_columns,table='Manufacturing plan')
