@@ -1,6 +1,8 @@
 """
 # Carga de demanda
 ## Toma la demanda del cliente, el reporte de POs firmes del dia y descuenta el BOM para generar la carga de la demanda
+- V9. 2025-08-07
+    - Cambio de nombre de botones de carpetas
 - V8. 2025-06-18
     - Migración a streamlit
 - V7. 2024-11-09
@@ -669,7 +671,7 @@ try:
     st.set_page_config(page_title="Carga de demanda", page_icon=":scroll:")
 except StreamlitAPIException:
     pass
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V8. 2025-06-18</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V9. 2025-08-07</div>", unsafe_allow_html=True)
 st.markdown(
     r"""
     <style>
@@ -682,8 +684,8 @@ st.markdown(
 st.title("Carga de demanda")
 
 
-st.header("Seleccionar carpeta de trabajo")
-if st.button("Seleccionar carpeta", key="select_folder"):
+st.header("Seleccion de carpetas")
+if st.button("Seleccionar carpeta de trabajo", key="select_folder"):
     folder = select_directory(initialdir=state["folder_output"] or os.getcwd())
     if folder:
         state["folder_output"] = folder
@@ -711,7 +713,6 @@ else:
 
 st.header("Seleccion de archivos")
 file_selectors = [
-    ("korrus_file", "Korrus File"),
     ("bom_file", "BOM"),
     ("write_forecast", "Write Forecast"),
     ("apollo_file", "Apollo"),
