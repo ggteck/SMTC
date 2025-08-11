@@ -1030,8 +1030,9 @@ try:
     st.session_state.dict_formats=get_xl_formatting()
     st.session_state.df_column_equivalence = st.session_state.col_rel['column_equivalence']
     st.session_state.df_master_operation_relation = st.session_state.col_rel['master_operation_relation']
-except:
+except Exception as e:
     st.warning("Seleccione la carpeta de trabajo y reinicie")
+    st.error(f"Error: {e}")
 try:
     st.set_page_config(page_title="Plan de manufactura", page_icon=":factory:")
 except StreamlitAPIException:
