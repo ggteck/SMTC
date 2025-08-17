@@ -1,5 +1,9 @@
 """
 Manufacturing plan
+- V16. 2025-08-17
+    - Correccion de orden de operaciones
+    - Correccion en el manejo de data_editor
+    - Reporte de asignaciones
 - V15. 2025-08-05
     - Planeacion parte 2, se agrega manejo de diferentes routers y operaciones por maquina
 - V14. 2025-06-07
@@ -268,7 +272,8 @@ def load_state_pickle(filename='folder_state.pkl'):
     except FileNotFoundError:
         return {
             "folder_output": None,
-            "selections": {}
+            "selections": {},
+            "plan_name": ""
         }
 def is_file_open(filepath):
     # Check if the file exists
@@ -294,6 +299,11 @@ def close_xl_if_open(path):
             st.error(f"Cerrar el archivo: {path}")
             st.stop()   
 
+def _persist_plan_name():
+    # Toma el valor actual del input y lo conserva tanto en session_state como en el pickle
+    state["plan_name"] = st.session_state.get("txt_plan_name", "")
+    st.session_state.plan_name = state["plan_name"]
+    save_state_pickle(state, filename=path_pickle)
 
 # =============================================================================
 # DataFrame Management & Data Processing
@@ -418,7 +428,17 @@ def get_common_records(df_new=pd.DataFrame(),df_old=pd.DataFrame(),keys=[],how='
     df_new.drop(columns=['composite_key'],inplace=True)
     return df_new
 
-
+# =============================================================================
+# Helper functions
+# =============================================================================
+def _apply_edits_back(base_df, edited_df, key_cols, flag_cols):
+    """Write edited flag values back into the base df using key_cols."""
+    base_idx   = base_df.set_index(key_cols)
+    edited_idx = edited_df.set_index(key_cols)
+    for col in flag_cols:
+        if col in edited_idx.columns:
+            base_idx.loc[edited_idx.index, col] = edited_idx[col]
+    return base_idx.reset_index()
     
 # =============================================================================
 # Main Functions
@@ -488,14 +508,18 @@ def machine_selection():
     if 'editor_id' not in st.session_state:
         st.session_state.editor_id=''
     st.session_state.editor_id=str(uuid.uuid4())
+    if 'df_order_list' not in st.session_state:
+        st.error("Favor de verificar las ordenes")
+        st.stop()
     df_order_list=st.session_state.df_order_list
-    valid_part_numbers=df_order_list['pn'].tolist()
+    valid_part_numbers=df_order_list['pn'].tolist()+df_order_list['pn_orig'].tolist()
     if 'df_plan_old' not in st.session_state:
         st.error('Favor de verificar las ordenes')
         return
     normalizer = ExcelNormalizer(st.session_state.df_column_equivalence)
     df_master_operation_relation=st.session_state.df_master_operation_relation
-    df_selected_operations=st.session_state.df_selected_operations
+    df_selected_operations=st.session_state.df_selected_operations.copy()
+    df_selected_operations=df_selected_operations[df_selected_operations['Programar']]
     df_routing=st.session_state.df_routing
     df_master = normalizer.normalize_folder(state["folder_master"])
     df_master['operation_description']=df_master['operation_description'].str.upper().fillna('')
@@ -506,7 +530,7 @@ def machine_selection():
     df_master_1=df_master_1.drop(columns=['operation_description']).merge(df_master_operation_relation,how='left',on=['file_name_like'],)
     df_master_1['operation_description']=df_master_1['operation_description'].fillna('')
     df_master=pd.concat([df_master_1,df_master_2])
-    df_master.reset_index(drop=True,inplace=True)
+    df_master.reset_index(drop=True,inplace=True)  
     df_master=df_master[df_master["operation_description"].isin(df_selected_operations['operation_description'])]
     df_master.fillna("", inplace=True)
     df_master = df_master[df_master["pn"] != ""]
@@ -524,26 +548,62 @@ def machine_selection():
     df_master_long=df_master_long[df_master_long['maq']!='']
     df_master_long.drop(columns=['file_name_like'],inplace=True)
     df_master_long['Disponible']=True
+    df_rout_order=df_routing[['operation_description','number']].drop_duplicates(subset=['operation_description'])
+    df_master_long=df_master_long.merge(df_rout_order,how='left',on=['operation_description'])
     st.session_state.df_master_long = df_master_long.copy()
+    st.session_state.df_filtered_master = df_master_long.copy()
+    st.session_state.df_selected_master = df_master_long.copy()
     path_available_hours=st.session_state.selected_paths['available_hours']
     df_avail_hours=read_excel(path=path_available_hours)
     df_avail_hours['dia']=pd.to_datetime(df_avail_hours['dia'],errors='coerce').dt.strftime('%Y-%m-%d')
     df_avail_hours['dia'].fillna('default',inplace=True)   
-
+    
     st.session_state.df_avail_hours=df_avail_hours
+    df_order_list.merge(df_routing,how='inner',on=['pn'])
+
+    # Missing routings or machine definition alert
+    df_selected_routing=df_routing[df_routing['operation_description'].isin(df_selected_operations['operation_description'])]
+    df_missing_rout=df_order_list[~df_order_list['pn'].isin(df_selected_routing['pn'])]
+    df_missing_rout=df_missing_rout[~df_missing_rout['pn_orig'].isin(df_selected_routing['pn'])]
+    df_missing_machine=df_order_list[~df_order_list['pn'].isin(df_selected_routing['pn'])]
+    df_missing_machine=df_missing_machine[~df_missing_machine['pn_orig'].isin(df_selected_routing['pn'])]
+    
+    # df_missing_machine=df_order_list[(~df_order_list['pn'].isin(df_master_doblado['pn']))&
+    #                                 (~df_order_list['pn_orig'].isin(df_master_doblado['pn']))&
+    #                                 (df_order_list['machine']=='')]
+    # df_order_list.drop(columns=['composite_key'],inplace=True)
+    
+    if len(df_missing_rout)>0:
+        st.error("Falta definir o seleccionar operacion para las lineas siguientes. Verificar ordenes de nuevo para integrar routers")
+        st.dataframe(df_missing_rout)
+    if len(df_missing_machine)>0:
+        st.error("Falta definir maquina para la lineas:")
+        st.dataframe(df_missing_machine)
 
 # @note Verify order list
 def verify_order_list():
     df_columns=st.session_state.df_columns
     df_col_rel=st.session_state.df_col_rel
-    #% Open order list
+
+    # Equivalencias
+    path_equiv = st.session_state.selected_paths['equivalencias_file']
+    df_equiv=read_predefined_excel(path_equiv,df_columns,table='Equivalencias')
+    df_equiv['pn']=df_equiv['pn'].astype(str)
+    dict_equiv=df_equiv.set_index('pn')['equivalencia'].to_dict()
+    dict_equiv_inv={v: k for k, v in dict_equiv.items()}
+    st.session_state.dict_equiv_inv=dict_equiv_inv
+
+    # Lista de ordenes
     path_order_list = st.session_state.selected_paths['order_file']
     df_order_list = load_excel_with_header_key(path_order_list, key_text='Priority')
     check_mandatory_columns_df(df_order_list.columns,df_columns=df_columns,table='Lista de ordenes')
     df_order_list = rename_columns(df_order_list, df_col_rel, table_from='Lista de ordenes')
     df_order_list = df_order_list[df_order_list['status']!='Planeada']
+    df_order_list['pn']=df_order_list['pn'].astype(str)
+    df_order_list['pn_orig']=df_order_list['pn']
+    df_order_list['pn']=df_order_list['pn'].replace(dict_equiv)
     st.session_state.df_order_list=df_order_list
-
+    
     # Get routing list
     path_routing = st.session_state.selected_paths['routing_file']
     df_routing = load_excel_with_header_key(path_routing, sheet_name='Operations', key_text='Routing')
@@ -551,7 +611,12 @@ def verify_order_list():
     df_routing['operation_description']=df_routing['operation_description'].str.upper()
     df_routing['pn']=df_routing['pn'].astype(str)
     st.session_state.df_routing = df_routing
-    df_available_operations=df_routing[df_routing['pn'].isin(df_order_list['pn'])][['operation_description']].drop_duplicates()
+    df_available_operations = df_routing[
+            df_routing['pn'].isin(
+                pd.concat([df_order_list['pn'], df_order_list['pn_orig']]).unique()
+            )
+        ][['operation_description']].drop_duplicates()
+
     df_available_operations['Programar']=False
     st.session_state.df_available_operations=df_available_operations
 
@@ -588,6 +653,7 @@ def create_plan():
     if ('plan_name' not in st.session_state) | (st.session_state.plan_name==''):
         st.error("Definir nombre para el plan")
         return
+    df_order_list=st.session_state.df_order_list
     df_avail_hours=st.session_state.df_avail_hours
     dict_avail_hours=df_avail_hours.set_index(['dia','maquina']).to_dict(orient='index')
 
@@ -603,48 +669,8 @@ def create_plan():
     df_master_doblado['pn']=df_master_doblado['pn'].astype(str)
 
     df_routing=st.session_state.df_routing 
-
-    # Equivalencias
-    path_equiv = st.session_state.selected_paths['equivalencias_file']
-    df_equiv=read_predefined_excel(path_equiv,df_columns,table='Equivalencias')
-    df_equiv['pn']=df_equiv['pn'].astype(str)
-    dict_equiv=df_equiv.set_index('pn')['equivalencia'].to_dict()
-    dict_equiv_inv={v: k for k, v in dict_equiv.items()}
-    # Lista de ordenes
-    path_order_list = st.session_state.selected_paths['order_file']
-    df_order_list = load_excel_with_header_key(path_order_list, key_text='Priority')
-    df_order_list = rename_columns(df_order_list, st.session_state.df_col_rel, table_from='Lista de ordenes')
-    df_order_list['pn']=df_order_list['pn'].astype(str)
-    # df_order_list['operation_description'].fillna('DOBLADO',inplace=True)
-    # df_order_list.loc[df_order_list['operation_description']=='','operation_description']='DOBLADO'
-    st.session_state.df_order_list=df_order_list
-    df_order_list['pn_orig']=df_order_list['pn']
-    df_order_list['pn']=df_order_list['pn'].replace(dict_equiv)
-    # df_order_list['operation_description']=df_order_list['operation_description'].str.upper()
-    # Missing routings or machine definition alert
-    #df_missing_rout=get_common_records(df_order_list,df_routing,keys=['pn','operation_description'],how='uncommon')
-    # df_order_list['composite_key'] = list(zip(*(df_order_list[col] for col in ['pn','operation_description'])))
-    # df_routing['composite_key'] = list(zip(*(df_routing[col] for col in ['pn','operation_description'])))
-    # df_missing_rout=df_order_list[~df_order_list['composite_key'].isin(df_routing['composite_key'])]
-    # df_missing_rout['composite_key'] = list(zip(*(df_missing_rout[col] for col in ['pn_orig','operation_description'])))
-    # df_missing_rout=df_missing_rout[~df_missing_rout['composite_key'].isin(df_routing['composite_key'])]
-    # if 'composite_key' in df_missing_rout.columns:
-    #     df_missing_rout.drop(columns=['composite_key'],inplace=True)
-    # df_missing_machine=df_order_list[(~df_order_list['pn'].isin(df_master_doblado['pn']))&
-    #                                 (~df_order_list['pn_orig'].isin(df_master_doblado['pn']))&
-    #                                 (df_order_list['machine']=='')]
-    # df_order_list.drop(columns=['composite_key'],inplace=True)
-    
-    # if len(df_missing_rout)>0:
-    #     st.error("Falta definir router para las lineas:")
-    #     st.dataframe(df_missing_rout)
-    # if len(df_missing_machine)>0:
-    #     st.error("Falta definir maquina para la lineas:")
-    #     st.dataframe(df_missing_machine)
-
-    # part_numbers=st.session_state.df_master_long
     part_numbers = {}
-    for pn, grp in st.session_state.df_selected_master.groupby("pn"):
+    for pn, grp in st.session_state.df_selected_master.sort_values(['pn','number']).groupby("pn"):
         ops = {}
         for idx, (op_name, sub) in enumerate(grp.groupby("operation_description"), start=1):
             # Tomamos la lista de máquinas de la columna 'maq', quitamos NaN/strings vacíos
@@ -671,7 +697,7 @@ def create_plan():
     df_part_master = rename_columns(df_part_master, df_col_rel, table_from='Part Master')
     df_part_master=df_part_master[['pn','unit_selling_price']].drop_duplicates(subset=['pn'],keep='last')
     df_part_master_orig=df_part_master.copy()
-    df_part_master['pn']=df_part_master['pn'].replace(dict_equiv_inv)
+    df_part_master['pn']=df_part_master['pn'].replace(st.session_state.dict_equiv_inv)
     df_part_master=pd.concat([df_part_master_orig,df_part_master])
     df_part_master=df_part_master.drop_duplicates(subset=['pn'],keep='last')
     st.session_state.df_part_master=df_part_master
@@ -695,10 +721,9 @@ def create_plan():
 
     # 2) Prepare
     assignments    = []
-    pn_to_machine  = {}    # first‐machine lock per PN
+    pn_op_to_machine = {}  # first‐machine lock per PN/operation
     wo_next_start  = {}    # earliest allowed timestamp per WO
     wo_last_machine = {}    # last machine used per WO
-    machine_status = {}
     df_order_list.sort_values('priority', inplace=True)
     
     # prebuild full set of dates we may need
@@ -711,6 +736,7 @@ def create_plan():
         # routing_name  = order['operation_description']
         # machine_def   = order['machine']
         pty           = order['priority']
+        machine_status = {}
         if pn not in part_numbers:
             continue
         for _,operation in part_numbers[pn]['operations'].items():
@@ -729,27 +755,16 @@ def create_plan():
                 if pn_info.empty:
                     continue
             run_time, setup_time = pn_info.iloc[0][['run_time','setup_time']]
-            # select machine
-            # if machine_def:
-            #     m_list = [machine_def]
-            # elif pn in pn_to_machine:
-            if pn in pn_to_machine:
-                m_list = [pn_to_machine[pn]]
+            key_pn_op = (pn, routing_name)
+            if key_pn_op in pn_op_to_machine:
+                m_list = [pn_op_to_machine[key_pn_op]]
             else:
-                # rows = df_master_doblado[df_master_doblado['pn']==pn]
-                # if rows.empty:
-                #     rows = df_master_doblado[df_master_doblado['pn']==pn_orig]
-                #     if rows.empty:
-                #         continue
-                # m_list = [v for k,v in rows.iloc[0].items() if 'maq_opc' in k and v]
                 m_list = [
-                            m_name
-                            for op in part_numbers[pn]['operations'].values()
-                            for m_dict in op['machines']
-                            for m_name, valid in m_dict.items()
-                            if valid == '1'
-                        ]                
-
+                    m_name
+                    for m_dict in operation['machines']
+                    for m_name, valid in m_dict.items()
+                    if valid == '1'
+                ]          
             # determine earliest start
             initial_start={"finish_ts":pd.to_datetime(initial_date_str)}
             start_ts = wo_next_start.get(wo, initial_start)
@@ -762,8 +777,8 @@ def create_plan():
             # assignment loop
             for m in m_list:
                 # lock PN → machine on first assignment
-                if pn not in pn_to_machine:
-                    pn_to_machine[pn] = m
+                if key_pn_op not in pn_op_to_machine:
+                    pn_op_to_machine[key_pn_op] = m
                 # walk through dates until qty is 0 or we pass limit
                 for date_str in all_dates:
                     if qty <= 0:
@@ -969,13 +984,16 @@ def validate_plan():
     if ('plan_name' not in st.session_state) | (st.session_state.plan_name==''):
         st.error("Definir nombre para el plan")
         return
+    df_columns=st.session_state.df_columns
+    df_col_rel=st.session_state.df_col_rel
     path_plan=os.path.join(st.session_state.folder_output,f"{st.session_state.plan_name}.xlsx")
+    path_assigned_report=os.path.join(st.session_state.folder_output,f"{st.session_state.plan_name}_assignment.xlsx")
     path_order_list = st.session_state.selected_paths['order_file']
     df_order_list=st.session_state.df_order_list
     close_xl_if_open(path_order_list)
     close_xl_if_open(path_plan)
     df_plan=read_excel(path_plan)
-    df_plan_grp=df_plan.groupby(['pn','wo']).sum(['pzas_x_hacer'])[['pzas_x_hacer']]
+    df_plan_grp=df_plan.groupby(['pn','wo','Operacion']).sum(['pzas_x_hacer'])[['pzas_x_hacer']]
     df_plan_grp.reset_index(inplace=True)
     df_order_list['composite_key']=list(zip(*(df_order_list[col] for col in ['pn','wo'])))
     df_plan['composite_key']=list(zip(*(df_plan[col] for col in ['pn','wo'])))
@@ -984,20 +1002,25 @@ def validate_plan():
         df_not_planned.drop(columns=['composite_key'],inplace=True)
         st.warning("Las siguientes ordenes no han sido planeadas")
         st.dataframe(df_not_planned)
-    # df_order_assignment=df_order_list.merge(df_plan_grp,how='left',on=['pn','wo'],suffixes=('','_assigned'))
-    # df_order_assignment['pzas_x_asignar']=df_order_assignment['pzas_x_hacer']-df_order_assignment['pzas_x_hacer_assigned']
-    # df_order_assignment.loc[df_order_assignment['pzas_x_asignar']==0,'status']='Planeada'
-    # df_order_assignment.loc[df_order_assignment['pzas_x_asignar']>0,'status']='Incompleta'
-    # df_order_assignment.loc[df_order_assignment['pzas_x_asignar'].isna(),'status']='Pendiente'
-    # df_order_assignment=df_order_assignment.drop(columns=['pzas_x_hacer_assigned','pzas_x_asignar'])
-    # orders_cols=df_columns[(df_columns['table']=='Lista de ordenes')]['std_name'].to_list()
+    df_order_assignment=df_order_list.merge(df_plan_grp,how='left',on=['pn','wo'],suffixes=('','_assigned'))
+    df_order_assignment['pzas_x_asignar']=df_order_assignment['pzas_x_hacer']-df_order_assignment['pzas_x_hacer_assigned']
+    df_order_assignment.loc[df_order_assignment['pzas_x_asignar']==0,'status']='Planeada'
+    df_order_assignment.loc[df_order_assignment['pzas_x_asignar']>0,'status']='Incompleta'
+    df_order_assignment.loc[df_order_assignment['pzas_x_asignar'].isna(),'status']='Pendiente'
+    df_order_assignment=df_order_assignment.drop(columns=['pzas_x_hacer_assigned'])
+    # orders_cols=df_columns[(df_columns['table']=='Lista de ordenes')&(~df_columns['mandatory_column'].isna())]['std_name'].to_list()
     # df_order_assignment=df_order_assignment[orders_cols]
-    # df_order_assignment=rename_columns(df_order_assignment,df_col_rel,table_to='Lista de ordenes')
-    # df_order_assignment.to_excel(path_order_list,index=False)
+    df_order_assignment=rename_columns(df_order_assignment,df_col_rel,table_to='Lista de ordenes')
+    if 'composite_key' in df_order_assignment.columns:
+        df_order_assignment.drop(columns=['composite_key'],inplace=True)
+    df_order_assignment.to_excel(path_assigned_report,index=False)
     df_plan.loc[df_plan['status'].isna(),'status']='Planeada'
+    if 'composite_key' in df_plan.columns:
+        df_plan.drop(columns=['composite_key'],inplace=True)
     df_plan.to_excel(path_plan,sheet_name='Manufacturing plan',index=False)
     os.startfile(path_order_list)
     os.startfile(path_plan)
+    os.startfile(path_assigned_report)
 
 def manage_file_selector(selector_key, display_label, state):
     if not state["selections"].get(selector_key):
@@ -1022,6 +1045,7 @@ path_pickle=os.path.join(Path(__file__).parent,'folder_state_planner.pkl')
 state = load_state_pickle(path_pickle)
 st.session_state.folder_output = state['folder_output']
 st.session_state.selected_paths = state['selections']
+st.session_state.plan_name = state.get("plan_name", "")
 try:
     st.session_state.output_paths = set_paths(st.session_state.folder_output)
     st.session_state.col_rel = set_col_rel(st.session_state.output_paths)
@@ -1037,7 +1061,7 @@ try:
     st.set_page_config(page_title="Plan de manufactura", page_icon=":factory:")
 except StreamlitAPIException:
     pass
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V15. 2025-08-05</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V16. 2025-08-17</div>", unsafe_allow_html=True)
 st.markdown(
     r"""
     <style>
@@ -1108,7 +1132,13 @@ with tab1:
 with tab2:
 
     st.header("Nombre del plan:")
-    st.session_state.plan_name = st.text_input("",value="",key='txt_plan_name')
+    st.text_input(
+        "",
+        value=state.get("plan_name", ""),
+        key="txt_plan_name",
+        on_change=_persist_plan_name
+        )
+    st.session_state.plan_name = st.session_state.get("txt_plan_name", "")
 
     st.header("Definicion de ordenes")
 
@@ -1120,38 +1150,120 @@ with tab2:
         
     st.header("Operaciones a planear")
     msg_error_avail=st.empty()
-    if 'df_available_operations' in st.session_state:
-        df_available_operations=st.session_state.df_available_operations
-        query_operation = st.text_input("Filtrar Operacion",value="",key='query_operation')
-        if query_operation!='':
-            df_available_operations=df_available_operations[df_available_operations['operation_description'].str.contains(query_operation.upper())]
-        df_selected_operations=st.data_editor(df_available_operations,key="available_operations")
-        st.session_state.df_selected_operations=df_selected_operations[df_selected_operations['Programar']==True][['operation_description']]
+
+    def _sync_programar(src: pd.DataFrame, dst: pd.DataFrame) -> None:
+        """Copy Programar states from src -> dst, aligned by index."""
+        common = src.index.intersection(dst.index)
+        if len(common):
+            dst.loc[common, "Programar"] = src.loc[common, "Programar"].values
+
+    def _filter_available_operations():
+        base = st.session_state.df_available_operations
+        q = st.session_state.query_operation.strip()
+
+        if q:
+            mask = base["operation_description"].str.contains(q, case=False, na=False)
+            st.session_state.df_filtered_operations = base.loc[mask].copy()
+        else:
+            st.session_state.df_filtered_operations = base.copy()
+
+        # carry current selections into the (re)filtered view
+        _sync_programar(st.session_state.df_selected_operations, st.session_state.df_filtered_operations)
+
+    # --- @note Operations management ---
+    if "df_available_operations" in st.session_state:
+        # one-time inits
+        if "df_selected_operations" not in st.session_state:
+            # this holds the canonical selection state across filters
+            st.session_state.df_selected_operations = st.session_state.df_available_operations.copy()
+
+        if "df_filtered_operations" not in st.session_state:
+            st.session_state.df_filtered_operations = st.session_state.df_available_operations.copy()
+
+        # filter input (triggers re-filter + sync)
+        st.text_input(
+            "Filtrar Operacion",
+            value="",
+            key="query_operation",
+            on_change=_filter_available_operations,
+        )
+
+        # editor over the filtered view
+        edited_view = st.data_editor(
+            st.session_state.df_filtered_operations,
+            key="filtered_operations",
+            hide_index=True
+        )
+
+        # write back only the toggled Programar states to the canonical df
+        if isinstance(edited_view, pd.DataFrame):
+            _sync_programar(edited_view, st.session_state.df_selected_operations)
 
     if st.button("Buscar maquinas disponibles"):
         machine_selection()
 
     # @note Master management
-    if 'df_master_long' in st.session_state:
-        msg_error_avail=st.empty()
-        df_filtered_master=st.session_state.df_master_long
-        query_master = st.text_input("Filtrar Componente",value="",key='query_master')
-        if query_master!='':
-            df_filtered_master=df_filtered_master[df_filtered_master['pn'].str.contains(query_master.upper())]
-        df_filtered_master=st.data_editor(df_filtered_master,key=f"master_long{st.session_state.editor_id}")
-        idx_unselected_master=df_filtered_master['Disponible']==False
-        df_selected_master=st.session_state.df_master_long
-        if len(idx_unselected_master)>0:
-            df_selected_master=df_selected_master[~idx_unselected_master]
-        st.session_state.df_selected_master=df_selected_master
-        df_avail_hours=st.session_state.df_avail_hours
-        df_missing_avail=df_selected_master[(~df_selected_master['maq'].isin(df_avail_hours['maquina']))&(df_selected_master['Disponible']==True)]
-        df_missing_avail=df_missing_avail[['maq']].drop_duplicates()
-        st.session_state.df_missing_avail=df_missing_avail
-        if len(df_missing_avail)>0:
-            msg_error_avail=st.error("Se requiere disponibilidad en el archivo Horas disponibles para las maquinas:")
-            st.dataframe(df_missing_avail)
+    # --- helpers ---
+    def _sync_col(src: pd.DataFrame, dst: pd.DataFrame, col: str) -> None:
+        """Copy a column's values from src -> dst aligned by index."""
+        common = src.index.intersection(dst.index)
+        if len(common):
+            dst.loc[common, col] = src.loc[common, col].values
 
+    def _filter_master():
+        base = st.session_state.df_master_long
+        q = st.session_state.query_master.strip()
+        if q:
+            mask = base["pn"].astype(str).str.contains(q, case=False, na=False)
+            st.session_state.df_filtered_master = base.loc[mask].copy()
+        else:
+            st.session_state.df_filtered_master = base.copy()
+
+        # carry canonical 'Disponible' states into the (re)filtered view
+        _sync_col(st.session_state.df_selected_master, st.session_state.df_filtered_master, "Disponible")
+
+    # --- main ---
+    if "df_master_long" in st.session_state:
+        # canonical DF that holds the 'Disponible' state across filters
+        if "df_selected_master" not in st.session_state:
+            st.session_state.df_selected_master = st.session_state.df_master_long.copy()
+
+        if "df_filtered_master" not in st.session_state:
+            st.session_state.df_filtered_master = st.session_state.df_master_long.copy()
+
+        st.text_input(
+            "Filtrar Componente",
+            value="",
+            key="query_master",
+            on_change=_filter_master,
+        )
+
+        # editor over the filtered view
+        edited_master = st.data_editor(
+            st.session_state.df_filtered_master,
+            key=f"master_long{st.session_state.editor_id}",
+        )
+
+        # write back only edited 'Disponible' states into the canonical DF
+        if isinstance(edited_master, pd.DataFrame):
+            _sync_col(edited_master, st.session_state.df_selected_master, "Disponible")
+
+        # subset of rows where Disponible == True
+        df_selected_subset = st.session_state.df_selected_master[
+            st.session_state.df_selected_master["Disponible"] == True
+        ]
+        st.session_state.df_selected_master_selected = df_selected_subset  # optional: expose subset
+
+        # availability checks
+        df_avail_hours = st.session_state.df_avail_hours
+        df_missing_avail = df_selected_subset[
+            ~df_selected_subset["maq"].isin(df_avail_hours["maquina"])
+        ][["maq"]].drop_duplicates()
+        st.session_state.df_missing_avail = df_missing_avail
+
+        if not df_missing_avail.empty:
+            st.error("Se requiere disponibilidad en el archivo Horas disponibles para las máquinas:")
+            st.dataframe(df_missing_avail)
 
     selected_date = st.date_input("Fecha inicial de programacion", value=state.get("initial_date", datetime.date.today()))
     if selected_date != state.get("initial_date", datetime.date.today()):
