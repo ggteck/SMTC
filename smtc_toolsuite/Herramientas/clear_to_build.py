@@ -998,7 +998,7 @@ def launch_analysis():
     df_cols['monday_date']=mondays
     df_cols['monday_date']=pd.to_datetime(df_cols['monday_date']).dt.date.astype(str)
     df_cols['week']=pd.to_datetime(df_cols['monday_date']).dt.isocalendar().week
-    df_calendar=pd.read_excel(st.session_state.selected_paths['independent_demands'])
+    df_calendar=pd.read_excel(st.session_state.selected_paths['calendario'])
     df_calendar['monday_date']=df_calendar['monday_date'].astype(str)
     df_calendar['demand_year_month']=df_calendar['year'].astype(str)+'-'+df_calendar['closing_month'].astype(str)
     df_calendar['scd_year_month']=df_calendar['demand_year_month'].shift(-1)
