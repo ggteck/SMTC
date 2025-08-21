@@ -822,6 +822,14 @@ def launch_analysis():
 
 
     df_demand['Sales']=df_demand['Price']*df_demand['REQ']
+    """
+    ### Demanda:
+    """
+    st.dataframe(df_demand)
+    """
+    ### Ordenes lanzadas:
+    """
+    st.dataframe(df_lanzadas)
     df_demand=df_demand.merge(df_lanzadas,how='left',on=['PO','MODELO'])
 
     df_demand['WO']=df_demand['WO'].fillna(0).astype(int)
@@ -990,7 +998,7 @@ def launch_analysis():
     df_cols['monday_date']=mondays
     df_cols['monday_date']=pd.to_datetime(df_cols['monday_date']).dt.date.astype(str)
     df_cols['week']=pd.to_datetime(df_cols['monday_date']).dt.isocalendar().week
-    df_calendar=pd.read_excel(os.path.join(st.session_state.folder_output,'calendario.xlsx'))
+    df_calendar=pd.read_excel(st.session_state.selected_paths['independent_demands'])
     df_calendar['monday_date']=df_calendar['monday_date'].astype(str)
     df_calendar['demand_year_month']=df_calendar['year'].astype(str)+'-'+df_calendar['closing_month'].astype(str)
     df_calendar['scd_year_month']=df_calendar['demand_year_month'].shift(-1)
@@ -1814,7 +1822,8 @@ file_selectors = [
         ('po_wo_info','PO WO Info'),
         ('work_order_action','Work Order Action'),
         ('tablillas','Tablillas'),
-        ('component_allocation','Component Allocation')
+        ('component_allocation','Component Allocation'),
+        ('calendario','Calendario')
 ]
 for selector_key, display_label in file_selectors:
     manage_file_selector(selector_key, display_label, state)    
