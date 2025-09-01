@@ -1,6 +1,8 @@
 """
 # Carga de demanda
 ## Toma la demanda del cliente, el reporte de POs firmes del dia y descuenta el BOM para generar la carga de la demanda
+- V910. 2025-09-01
+    - Cambio de Korrus folder por korrus file
 - V9. 2025-08-07
     - Cambio de nombre de botones de carpetas
 - V8. 2025-06-18
@@ -306,25 +308,18 @@ def generate_demand():
         st.info(f"Favor de cerrar los siguientes archivos: {', '.join(open_files)}")
         st.stop()
 
-
-    path_pos=state.get('korrus_folder')
+    path_pos=path_bom=st.session_state.selected_paths['korrus_file']
     if not path_pos:
-        st.info('Favor de seleccionar al menos un KorrusFile')
+        st.info('Favor de seleccionar al un KorrusFile')
         st.stop()
-    list_pos=os.listdir(path_pos)
-    df_pos=pd.DataFrame()
-    for po_file in list_pos:
-        if not '850KorrusFile' in po_file:
-            continue
-        if os.path.splitext(os.path.basename(po_file))[1].lower()==".xlsx":
-            df = pd.read_excel(os.path.join(path_pos,po_file))
-        else:
-            try:
-                df = pd.read_csv(os.path.join(path_pos,po_file), sep='\t', encoding='utf-16')
-            except:
-                df = pd.read_csv(os.path.join(path_pos,po_file), sep=',')
-        check_mandatory_cols(df.columns,'KorrusFile')
-        df_pos=pd.concat([df,df_pos])
+    if os.path.splitext(os.path.basename(path_pos))[1].lower()==".xlsx":
+        df_pos = pd.read_excel(path_pos)
+    else:
+        try:
+            df_pos = pd.read_csv(path_pos, sep='\t', encoding='utf-16')
+        except:
+            df_pos = pd.read_csv(path_pos, sep=',')
+    check_mandatory_cols(df_pos.columns,'KorrusFile')
 
     df_pos.reset_index(drop=True,inplace=True)
 
@@ -671,7 +666,7 @@ try:
     st.set_page_config(page_title="Carga de demanda", page_icon=":scroll:")
 except StreamlitAPIException:
     pass
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V9. 2025-08-07</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V10. 2025-09-01</div>", unsafe_allow_html=True)
 st.markdown(
     r"""
     <style>
@@ -698,21 +693,22 @@ else:
     st.info("No seleccionado.")
 
 
-if st.button("Carpeta de archivos Korrus", key="select_korrus"):
-    folder = select_directory(initialdir=state["folder_output"] or os.getcwd())
-    if folder:
-        state["korrus_folder"] = folder
-        save_state_pickle(state,filename=path_pickle)
-        st.rerun()
+# if st.button("Carpeta de archivos Korrus", key="select_korrus"):
+#     folder = select_directory(initialdir=state["folder_output"] or os.getcwd())
+#     if folder:
+#         state["korrus_folder"] = folder
+#         save_state_pickle(state,filename=path_pickle)
+#         st.rerun()
 
-if "korrus_folder" in state:
-    st.success(f"Carpeta de trabajo: {state['korrus_folder']}")
-else:
-    st.info("No seleccionado.")
+# if "korrus_folder" in state:
+#     st.success(f"Carpeta de trabajo: {state['korrus_folder']}")
+# else:
+#     st.info("No seleccionado.")
 
 
 st.header("Seleccion de archivos")
 file_selectors = [
+    ("korrus_file", "Korrus file"),
     ("bom_file", "BOM"),
     ("write_forecast", "Write Forecast"),
     ("apollo_file", "Apollo"),
