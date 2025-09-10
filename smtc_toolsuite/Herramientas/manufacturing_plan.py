@@ -1,5 +1,8 @@
 """
 Manufacturing plan
+- V17. 2025-09-09
+    - Ordenar tabla maquinas
+    - Trim en campo de maquinas
 - V16. 2025-08-17
     - Correccion de orden de operaciones
     - Correccion en el manejo de data_editor
@@ -522,7 +525,8 @@ def machine_selection():
     df_selected_operations=df_selected_operations[df_selected_operations['Programar']]
     df_routing=st.session_state.df_routing
     df_master = normalizer.normalize_folder(state["folder_master"])
-    df_master['operation_description']=df_master['operation_description'].str.upper().fillna('')
+    df_master['operation_description']=df_master['operation_description'].str.upper().fillna('').str.strip()
+    machine_cols = [c for c in df_master.columns if c.startswith("maq_")]
     df_master = df_master[df_master["pn"].isin(valid_part_numbers)]
     blanks_idx=(df_master['operation_description']=='')
     df_master_1=df_master[blanks_idx]
@@ -538,13 +542,13 @@ def machine_selection():
     df_routing['composite_key']=list(zip(*(df_routing[col] for col in ['pn','operation_description'])))
     df_master=df_master[df_master['composite_key'].isin(df_routing['composite_key'])]
     df_master.drop(columns=['composite_key'],inplace=True)
-    machine_cols = [c for c in df_master.columns if c.startswith("maq_")]
     df_master_long = df_master.melt(
     id_vars=['pn','file_name_like','operation_description'],
     value_vars=machine_cols,
     var_name='maq_col',
     value_name='maq'
             )
+    df_master_long['maq']=df_master_long['maq'].str.strip()
     df_master_long=df_master_long[df_master_long['maq']!='']
     df_master_long.drop(columns=['file_name_like'],inplace=True)
     df_master_long['Disponible']=True
@@ -1061,7 +1065,7 @@ try:
     st.set_page_config(page_title="Plan de manufactura", page_icon=":factory:")
 except StreamlitAPIException:
     pass
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V16. 2025-08-17</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V17. 2025-09-09</div>", unsafe_allow_html=True)
 st.markdown(
     r"""
     <style>
@@ -1230,7 +1234,7 @@ with tab2:
 
         if "df_filtered_master" not in st.session_state:
             st.session_state.df_filtered_master = st.session_state.df_master_long.copy()
-
+        "## Seleccion de maquinas disponibles"
         st.text_input(
             "Filtrar Componente",
             value="",
@@ -1240,7 +1244,7 @@ with tab2:
 
         # editor over the filtered view
         edited_master = st.data_editor(
-            st.session_state.df_filtered_master,
+            st.session_state.df_filtered_master.sort_values(['pn','operation_description','maq_col']),
             key=f"master_long{st.session_state.editor_id}",
         )
 
