@@ -530,6 +530,8 @@ def machine_selection():
             st.error(f"Se encontro un error en los archivos Master {file_path}: {err}")
     df_master['operation_description']=df_master['operation_description'].str.upper().fillna('').str.strip()
     machine_cols = [c for c in df_master.columns if c.startswith("maq_")]
+    for col in machine_cols:
+        df_master[col]=df_master[col].str.strip()
     df_master = df_master[df_master["pn"].isin(valid_part_numbers)]
     blanks_idx=(df_master['operation_description']=='')
     df_master_1=df_master[blanks_idx]
