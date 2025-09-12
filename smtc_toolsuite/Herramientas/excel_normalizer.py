@@ -62,38 +62,47 @@ class ExcelNormalizer:
         canonical_cols = self.map_df['std_name'].unique().tolist()
         return pd.DataFrame(columns=canonical_cols)
 
-    def normalize_folder(self, input_folder: str, sheet_names: list = None) -> pd.DataFrame:
+    def normalize_folder(self, input_folder: str, sheet_names: list = None) -> tuple[pd.DataFrame, list]:
         """
-        Walk through all .xlsx files in input_folder, apply normalization on
-        each sheet (or only those in sheet_names if provided), and return a
-        master DataFrame including a "file_name_like" column.
+        Walk through all .xlsx/.xlsm files in input_folder, apply normalization on
+        each sheet (or only those in sheet_names if provided), and return:
+        - a master DataFrame including a "file_name_like" column
+        - a list of errors (file_path, error_message)
         """
         all_tables = []
-        for file_path in glob.glob(str(Path(input_folder) / '*.xlsx')):
-            xls = pd.ExcelFile(file_path)
+        errors = []
+
+        for file_path in glob.glob(str(Path(input_folder) / '*.xlsx')) + glob.glob(str(Path(input_folder) / '*.xlsm')):
+            try:
+                xls = pd.ExcelFile(file_path)
+            except Exception as e:
+                errors.append((file_path, str(e)))
+                continue
+
             for sheet in xls.sheet_names:
                 if sheet_names and sheet not in sheet_names:
                     continue
                 subset = self.get_mapping_subset(file_path, sheet)
                 if subset.empty:
                     continue
-                header_map = dict(zip(subset['other_name'], subset['std_name']))
 
+                header_map = dict(zip(subset['other_name'], subset['std_name']))
                 df_norm = self.extract_and_normalize_tables(file_path, sheet, header_map)
                 if df_norm.empty:
                     continue
 
-                # add file_name_like column (use first matching pattern)
+                # add file_name_like column
                 file_like_vals = subset['file_name_like'].unique().tolist()
                 df_norm['file_name_like'] = file_like_vals[0] if file_like_vals else ''
-
                 all_tables.append(df_norm)
 
         if all_tables:
-            return pd.concat(all_tables, ignore_index=True)
-        # If none found, return empty with canonical + file_name_like
-        canonical_cols = list(self.map_df['std_name'].unique()) + ['file_name_like']
-        return pd.DataFrame(columns=canonical_cols)
+            df = pd.concat(all_tables, ignore_index=True)
+        else:
+            canonical_cols = list(self.map_df['std_name'].unique()) + ['file_name_like']
+            df = pd.DataFrame(columns=canonical_cols)
+
+        return df, errors
 
 
 def main():

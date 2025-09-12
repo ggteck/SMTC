@@ -524,7 +524,10 @@ def machine_selection():
     df_selected_operations=st.session_state.df_selected_operations.copy()
     df_selected_operations=df_selected_operations[df_selected_operations['Programar']]
     df_routing=st.session_state.df_routing
-    df_master = normalizer.normalize_folder(state["folder_master"])
+    df_master, errors = normalizer.normalize_folder(state["folder_master"])
+    if errors:
+        for file_path, err in errors:
+            st.error(f"Se encontro un error en los archivos Master {file_path}: {err}")
     df_master['operation_description']=df_master['operation_description'].str.upper().fillna('').str.strip()
     machine_cols = [c for c in df_master.columns if c.startswith("maq_")]
     df_master = df_master[df_master["pn"].isin(valid_part_numbers)]
