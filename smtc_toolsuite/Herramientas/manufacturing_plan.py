@@ -1,5 +1,9 @@
 """
 Manufacturing plan
+- V17. 2025-09-15
+    - Se ignoran espacios dobles al buscar maquinas disponibles
+    - Se mejora el reporte de maquinas faltantes
+    - 
 - V17. 2025-09-09
     - Ordenar tabla maquinas
     - Trim en campo de maquinas
@@ -516,6 +520,7 @@ def machine_selection():
         st.stop()
     df_order_list=st.session_state.df_order_list
     valid_part_numbers=df_order_list['pn'].tolist()+df_order_list['pn_orig'].tolist()
+    df_valid_pn=pd.DataFrame(columns=['pn'],data=valid_part_numbers)
     if 'df_plan_old' not in st.session_state:
         st.error('Favor de verificar las ordenes')
         return
@@ -531,7 +536,7 @@ def machine_selection():
     df_master['operation_description']=df_master['operation_description'].str.upper().fillna('').str.strip()
     machine_cols = [c for c in df_master.columns if c.startswith("maq_")]
     for col in machine_cols:
-        df_master[col]=df_master[col].str.strip()
+        df_master[col]=df_master[col].str.replace(r'\s+', ' ', regex=True).str.strip()
     df_master = df_master[df_master["pn"].isin(valid_part_numbers)]
     blanks_idx=(df_master['operation_description']=='')
     df_master_1=df_master[blanks_idx]
@@ -545,6 +550,7 @@ def machine_selection():
     df_master = df_master[df_master["pn"] != ""]
     df_master['composite_key']=list(zip(*(df_master[col] for col in ['pn','operation_description'])))
     df_routing['composite_key']=list(zip(*(df_routing[col] for col in ['pn','operation_description'])))
+    # Assumed that the master and routing are aligned in pn and operations, if not the case, a report is needed here
     df_master=df_master[df_master['composite_key'].isin(df_routing['composite_key'])]
     df_master.drop(columns=['composite_key'],inplace=True)
     df_master_long = df_master.melt(
@@ -568,15 +574,28 @@ def machine_selection():
     df_avail_hours['dia'].fillna('default',inplace=True)   
     
     st.session_state.df_avail_hours=df_avail_hours
-    df_order_list.merge(df_routing,how='inner',on=['pn'])
 
     # Missing routings or machine definition alert
     df_selected_routing=df_routing[df_routing['operation_description'].isin(df_selected_operations['operation_description'])]
     df_missing_rout=df_order_list[~df_order_list['pn'].isin(df_selected_routing['pn'])]
     df_missing_rout=df_missing_rout[~df_missing_rout['pn_orig'].isin(df_selected_routing['pn'])]
-    df_missing_machine=df_order_list[~df_order_list['pn'].isin(df_selected_routing['pn'])]
-    df_missing_machine=df_missing_machine[~df_missing_machine['pn_orig'].isin(df_selected_routing['pn'])]
     
+    # These part numbers/operations are available
+    df_valid_pn=df_valid_pn.merge(df_routing[['pn','operation_description']],how='inner',on='pn')
+    # These are the ones the user wants to schedule
+    df_valid_pn=df_valid_pn[df_valid_pn['operation_description'].isin(df_selected_operations['operation_description'])]
+    df_valid_pn['composite_key']=list(zip(*(df_valid_pn[col] for col in ['pn','operation_description'])))
+    df_master_long['composite_key']=list(zip(*(df_master_long[col] for col in ['pn','operation_description'])))
+    df_missing_machine=df_valid_pn[~df_valid_pn['composite_key'].isin(df_master_long['composite_key'])]
+
+    df_master_long.drop(columns=['composite_key'],inplace=True)
+    df_missing_machine.drop(columns=['composite_key'],inplace=True)
+    
+    # df_missing_machine=df_order_list[~df_order_list['pn'].isin(df_selected_routing['pn'])]
+    # df_missing_machine=df_missing_machine[~df_missing_machine['pn_orig'].isin(df_selected_routing['pn'])]
+    # st.dataframe(df_missing_machine[df_missing_machine['pn_orig']=='250-92-0986-03-SGCC'])
+    # st.dataframe(df_selected_routing[df_selected_routing['pn']=='250-92-0986-03-SGCC'])
+    # st.dataframe(df_routing[df_routing['pn']=='250-92-0986-03-SGCC'])
     # df_missing_machine=df_order_list[(~df_order_list['pn'].isin(df_master_doblado['pn']))&
     #                                 (~df_order_list['pn_orig'].isin(df_master_doblado['pn']))&
     #                                 (df_order_list['machine']=='')]
@@ -670,12 +689,6 @@ def create_plan():
     path_plan=os.path.join(st.session_state.folder_output,f"{st.session_state.plan_name}.xlsx")
     df_columns=st.session_state.df_columns
     close_xl_if_open(path_plan)
-    path_master_doblado = st.session_state.selected_paths['master_file']
-    df_master_doblado = load_excel_with_header_key(path_master_doblado, sheet_name='00. Formato para Master de WC', key_text='PN')
-    check_mandatory_columns_df(df_master_doblado.columns,df_columns=df_columns,table='Master Doblado',sheet='00. Formato para Master de WC')
-    df_master_doblado = rename_columns(df_master_doblado, st.session_state.df_col_rel, table_from='Master Doblado', sheet_from='00. Formato para Master de WC')
-    df_master_doblado.replace('/','_',regex=True,inplace=True)
-    df_master_doblado['pn']=df_master_doblado['pn'].astype(str)
 
     df_routing=st.session_state.df_routing 
     part_numbers = {}
@@ -694,11 +707,10 @@ def create_plan():
                 "machines": machines
             }
         part_numbers[pn] = {"operations": ops}
-    df_missing=df_order_list[~df_order_list['pn'].isin(list(part_numbers.keys()))]
-    if len(df_missing)>0:
-        st.error("Falta definir router o maquina para las lineas:")
-        st.dataframe(df_missing[['priority','pn','wo','pzas_x_hacer']])
-
+    # df_missing=df_order_list[~df_order_list['pn'].isin(list(part_numbers.keys()))]
+    # if len(df_missing)>0:
+    #     st.error("Falta definir router o maquina para las lineas:")
+    #     st.dataframe(df_missing[['priority','pn','wo','pzas_x_hacer']])
     #% Open part master
     path_part_master = st.session_state.selected_paths['part_master']
     df_part_master = load_excel_with_header_key(path_part_master, key_text='Site')
@@ -1128,7 +1140,6 @@ with tab1:
         ("16_wk", "16Wk Gap"),
         ("sales", "Top ventas"),
         ("end_of_period", "End Of Period"),
-        ("master_file", "Master Doblado"),
         ("equivalencias_file", "Equivalencias"),
         ("order_file", "Lista de Ordenes"),
         ("routing_file", "Routing"),
@@ -1199,9 +1210,10 @@ with tab2:
 
         # editor over the filtered view
         edited_view = st.data_editor(
-            st.session_state.df_filtered_operations,
+            st.session_state.df_filtered_operations[['Programar','operation_description']],
             key="filtered_operations",
-            hide_index=True
+            hide_index=True,
+            
         )
 
         # write back only the toggled Programar states to the canonical df
@@ -1288,7 +1300,6 @@ with tab2:
 
     if st.button("Crear Plan"):
         if not (state.get("folder_output") and 
-                state["selections"].get("master_file") and 
                 state["selections"].get("order_file") and 
                 state["selections"].get("routing_file")):
             st.error("Por favor seleccione los archivos mandatorios.")
