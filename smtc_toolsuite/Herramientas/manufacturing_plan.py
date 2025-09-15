@@ -1,9 +1,9 @@
 """
 Manufacturing plan
-- V17. 2025-09-15
+- V18. 2025-09-15
     - Se ignoran espacios dobles al buscar maquinas disponibles
     - Se mejora el reporte de maquinas faltantes
-    - 
+    - Se elimina el uso del master de doblado
 - V17. 2025-09-09
     - Ordenar tabla maquinas
     - Trim en campo de maquinas
@@ -1082,7 +1082,7 @@ try:
     st.set_page_config(page_title="Plan de manufactura", page_icon=":factory:")
 except StreamlitAPIException:
     pass
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V17. 2025-09-09</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V18. 2025-09-15</div>", unsafe_allow_html=True)
 st.markdown(
     r"""
     <style>
