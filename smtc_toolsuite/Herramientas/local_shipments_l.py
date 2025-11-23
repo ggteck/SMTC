@@ -1216,6 +1216,14 @@ def update_edi():
     st.session_state.running=True
     msg_edi_update=st.empty()
     msg_edi_update.info("Actualizando EDI")
+    path_top_priority=get_path(state,'Top Priority')
+    df_top_priority=pd.DataFrame(columns=['po','request_type'])
+    if path_top_priority!="Not selected":
+        df_top_priority=read_excel(path_top_priority,sheet_name="Changes Request")
+        df_top_priority=rename_columns(df=df_top_priority,df_col_rel=df_col_rel,table_from="Top Priority",sheet_from="Changes Request")
+        df_top_priority=df_top_priority.drop_duplicates(subset=['po'])
+        df_top_priority=df_top_priority[['po','request_type']]
+    st.dataframe(df_top_priority)
     path_ship_cust_new=get_path(state,'ELP Master log')
     close_xl_if_open(path_ship_cust_new)
     path_ship_elp_new=get_path(state,'InventoryStageBakup')
@@ -1237,7 +1245,6 @@ def update_edi():
     ws_ship_elp=wb_elp['Shipment to ELP']
     ws_dict_ship_elp=get_worksheet_df(ws_ship_elp,key_text='CUU ship Date',data_only=True)
     df_ship_elp=ws_dict_ship_elp['df']
-
 
     if not os.path.exists(output_paths['path_xl_format']):
         st.error("No se encuentra el archivo: columns and formatting.xlsx")
@@ -1341,9 +1348,11 @@ def update_edi():
     df_cancelled['ProductService ID']=df_cancelled['ProductService ID'].str.upper()
     df_cancelled['status_cancelled']=True
     df_edi=df_edi.merge(df_cancelled,how='left',on=['PO','ProductService ID','LineNumber'])
+    df_edi=df_edi.merge(df_top_priority[['PO','Changes']],how='left',on=['PO'])
     df_edi['Order/Line cancelled?']=''
+    df_edi['Changes']=''
     df_edi.loc[df_edi['status_cancelled']==True,'Order/Line cancelled?']='Cancelled'
-    df_edi.drop(columns='status_cancelled',inplace=True)
+    df_edi.drop(columns='status_cancelled',inplace=True) 
     ws_dict_edi['df']=df_edi
     ws_edi=append_to_sheet(ws_dict_edi,ws_edi)
     ws_edi=update_column(ws_dict_edi,ws_edi,column='Order/Line cancelled?')
@@ -2717,7 +2726,7 @@ st.write("Carpeta seleccionada:", st.session_state.mail_folder.Name)
 
 # Selección de archivos mediante manage_file_selector
 st.header("Seleccionar archivos")
-for file_key in ['OOR', 'Tracker', 'EDI Master', 'ELP Master log', 'InventoryStageBakup', 'OH Max', 'Gating Parts']:
+for file_key in ['OOR', 'Tracker', 'EDI Master', 'Top Priority', 'ELP Master log', 'InventoryStageBakup', 'OH Max', 'Gating Parts']:
     manage_file_selector(file_key, file_key, state, path_pickle)
 
 # Selección de carpeta de yield reports
