@@ -1,6 +1,7 @@
 *.csv
 *.xlsx
 *.xlsb
+*.xlsm
 *.code-workspace
 *.pkl
 scripts/requirements.txt
@@ -12,3 +13,6 @@ scripts/requirements.txt
 scripts/.ipynb_checkpoints/scripts_catalog-checkpoint.ipynb
 PowerBi
 *.xls
+.venv/
+.vscode/
+.~lock*

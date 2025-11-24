@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V51. 2025-11-23
+    - Se agrega columna de cambios en EDI master
 - V50. 2025-08-04
     - Se corrige bug en df_ship_cust_new['is_shipped']
 - V49. 2025-07-23
@@ -138,8 +140,24 @@ from openpyxl.workbook.defined_name import DefinedName
 from types import SimpleNamespace
 from datetime import date, timedelta, datetime
 from tkinter import Tk, filedialog as fd
-import win32com.client
-import pythoncom
+import sys
+import subprocess
+if sys.platform == "win32":
+    import win32api  # pywin32 stuff
+    import pythoncom
+    # Windows-only code here
+else:
+    # Alternative implementation or just skip that feature
+    pass
+
+def open_file(path):
+    if sys.platform == "win32":
+        os.startfile(path)
+    elif sys.platform == "darwin":  # macOS
+        subprocess.Popen(["open", path])
+    else:  # Linux and everything else
+        subprocess.Popen(["xdg-open", path])
+
 from copy import copy
 import zipfile
 import xml.etree.ElementTree as ET
@@ -351,6 +369,11 @@ def get_path(state, selector):
         st.info(f"{selector} no seleccionado.")
     return path
 
+def open_file(path):
+    if sys.platform == "win32":
+        os.startfile(path)
+    else:  # Linux and everything else
+        subprocess.Popen(["xdg-open", path])
 # ----------------------------------------------------------------
 # Dataframe management
 # ----------------------------------------------------------------
@@ -614,6 +637,8 @@ def read_excel(path=None,sheet_name=0,header=0,keep_default_na=True,dtype=None):
     return df
 
 def close_xl_if_open(path):
+    if sys.platform != "win32":
+        return
     if is_file_open(path):
         try:
             excel = win32com.client.Dispatch("Excel.Application")
@@ -1221,9 +1246,8 @@ def update_edi():
     if path_top_priority!="Not selected":
         df_top_priority=read_excel(path_top_priority,sheet_name="Changes Request")
         df_top_priority=rename_columns(df=df_top_priority,df_col_rel=df_col_rel,table_from="Top Priority",sheet_from="Changes Request")
-        df_top_priority=df_top_priority.drop_duplicates(subset=['po'])
-        df_top_priority=df_top_priority[['po','request_type']]
-    st.dataframe(df_top_priority)
+        df_top_priority=df_top_priority.drop_duplicates(subset=['PO'],keep='last')
+        df_top_priority=df_top_priority[['PO','Changes']]
     path_ship_cust_new=get_path(state,'ELP Master log')
     close_xl_if_open(path_ship_cust_new)
     path_ship_elp_new=get_path(state,'InventoryStageBakup')
@@ -1348,15 +1372,17 @@ def update_edi():
     df_cancelled['ProductService ID']=df_cancelled['ProductService ID'].str.upper()
     df_cancelled['status_cancelled']=True
     df_edi=df_edi.merge(df_cancelled,how='left',on=['PO','ProductService ID','LineNumber'])
+    if 'Changes' in df_edi.columns:
+        df_edi.drop(columns=['Changes'],inplace=True)
     df_edi=df_edi.merge(df_top_priority[['PO','Changes']],how='left',on=['PO'])
     df_edi['Order/Line cancelled?']=''
-    df_edi['Changes']=''
     df_edi.loc[df_edi['status_cancelled']==True,'Order/Line cancelled?']='Cancelled'
     df_edi.drop(columns='status_cancelled',inplace=True) 
     ws_dict_edi['df']=df_edi
     ws_edi=append_to_sheet(ws_dict_edi,ws_edi)
     ws_edi=update_column(ws_dict_edi,ws_edi,column='Order/Line cancelled?')
     ws_edi=update_column(ws_dict_edi,ws_edi,column='EDI Received')
+    ws_edi=update_column(ws_dict_edi,ws_edi,column='Changes')
     ws_dict_ship_elp['df']=df_ship_elp
     ws_ship_elp=append_to_sheet(ws_dict_ship_elp,ws_ship_elp)
     date_cols=df_columns[(df_columns['sheet']=='EDI Master')&(df_columns['data_type']=='date')]['column_name'].to_list()
@@ -1366,7 +1392,7 @@ def update_edi():
     msg_edi_update.info("Guardando EDI")
     save_wb(wb_elp,path_ship_elp)
     msg_edi_update.info("EDI Actualizado, verifique que se sincronice")
-    os.startfile(path_ship_elp)
+    open_file(path_ship_elp)
     st.session_state.df_edi=df_edi
     st.session_state.df_ship_elp=df_ship_elp
 
@@ -1751,7 +1777,7 @@ def update_oor():
     msg_oor_update.info("Guardando OOR")
     save_wb(wb_oor_old,path_oor_old)
     msg_oor_update.info("Guardado, verifique la sincronizacion")
-    os.startfile(path_oor_old)
+    open_file(path_oor_old)
     st.session_state.running=False
 
 def fill_aar():
@@ -1806,7 +1832,7 @@ def fill_aar():
     wb=fill_yield_report(df_yield,wb,sheet_name='Trov Daily Status',search_parms=search_parms)
     wb=fill_yield_report(df_yield,wb,sheet_name='Rise Daily Status',search_parms=search_parms)
     wb.save(path_oor_old)
-    os.startfile(path_oor_old)
+    open_file(path_oor_old)
 
 def gating_parts():
     st.write("Ejecutando función: Gating Parts")
@@ -1905,7 +1931,7 @@ def gating_parts():
     # Value A1=1 is just to check later if formulas are evaluated
     ws_oor['A1'].value="=1"
     save_wb(wb_oor,path_oor)
-    os.startfile(path_oor)
+    open_file(path_oor)
 
 
 def actualizar_status():
@@ -2185,7 +2211,7 @@ def actualizar_status():
         ws_oor[row['TAT Category_cell']]=row['tat_cat']
 
     save_wb(wb_oor,path_oor)
-    os.startfile(path_oor)
+    open_file(path_oor)
 
 # ----------------------------------------------------------------
 # Flatten Outlook Folders Helper
@@ -2681,7 +2707,7 @@ try:
     st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
 except StreamlitAPIException:
     pass
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V50. 2025-08-04</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V51. 2025-11-23</div>", unsafe_allow_html=True)
 st.title("Seguimiento a Embarques")
 path_pickle=os.path.join(Path(__file__).parent,'folder_state_local_shipments.pkl')
 # Load state and update if needed
@@ -2707,21 +2733,22 @@ if state.get("folder_output"):
 
 # Selección de folder de Outlook con gestión de estado
 st.header("Outlook folders")
-pythoncom.CoInitialize()
-outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
-inbox = outlook.GetDefaultFolder(6)
-folder_options = flatten_folders(inbox)
-labels = [opt[0] for opt in folder_options]
-default_label = state.get("outlook_folder") if state.get("outlook_folder") in labels else labels[0]
-selected_label = st.selectbox("Selecciona una carpeta de Outlook", labels, index=labels.index(default_label))
-if selected_label != state.get("outlook_folder"):
-    state["outlook_folder"] = selected_label
-    save_state_pickle(state,filename=path_pickle)
-for label, folder in folder_options:
-    if label == selected_label:
-        st.session_state.mail_folder = folder
-        break
-st.write("Carpeta seleccionada:", st.session_state.mail_folder.Name)
+if sys.platform == "win32":
+    pythoncom.CoInitialize()
+    outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
+    inbox = outlook.GetDefaultFolder(6)
+    folder_options = flatten_folders(inbox)
+    labels = [opt[0] for opt in folder_options]
+    default_label = state.get("outlook_folder") if state.get("outlook_folder") in labels else labels[0]
+    selected_label = st.selectbox("Selecciona una carpeta de Outlook", labels, index=labels.index(default_label))
+    if selected_label != state.get("outlook_folder"):
+        state["outlook_folder"] = selected_label
+        save_state_pickle(state,filename=path_pickle)
+    for label, folder in folder_options:
+        if label == selected_label:
+            st.session_state.mail_folder = folder
+            break
+    st.write("Carpeta seleccionada:", st.session_state.mail_folder.Name)
 # pythoncom.CoUninitialize()
 
 # Selección de archivos mediante manage_file_selector
