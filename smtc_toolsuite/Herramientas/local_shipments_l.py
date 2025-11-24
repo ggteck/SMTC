@@ -1242,7 +1242,7 @@ def update_edi():
     msg_edi_update=st.empty()
     msg_edi_update.info("Actualizando EDI")
     path_top_priority=get_path(state,'Top Priority')
-    df_top_priority=pd.DataFrame(columns=['po','request_type'])
+    df_top_priority=pd.DataFrame(columns=['PO','Changes'])
     if path_top_priority!="Not selected":
         df_top_priority=read_excel(path_top_priority,sheet_name="Changes Request")
         df_top_priority=rename_columns(df=df_top_priority,df_col_rel=df_col_rel,table_from="Top Priority",sheet_from="Changes Request")
