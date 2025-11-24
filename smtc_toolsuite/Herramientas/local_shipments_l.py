@@ -143,7 +143,7 @@ from tkinter import Tk, filedialog as fd
 import sys
 import subprocess
 if sys.platform == "win32":
-    import win32api  # pywin32 stuff
+    import win32com.client  # pywin32 stuff
     import pythoncom
     # Windows-only code here
 else:
