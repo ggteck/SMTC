@@ -1,5 +1,7 @@
 """# Clear to build process
  Toma varios archivos de inputs en excel para generar el analisis de lanzamiento prellenado, permite agregar datos al mismo y a partir de este y otros inputs genera el archivo CTB.xlsx con informacion necesaria para el analisis de la definicion de lo que se planea lanzar
+- V22. 2026-06-28
+  - Se agrega un input para componente de analisis para troubleshooting de
 - V21. 2025-08-21
   - Migracion a streamlit
 - V20. 2025-03-27
@@ -113,7 +115,9 @@ from copy import copy, deepcopy
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Alignment
 from openpyxl.utils import get_column_letter
-import win32com.client
+import sys
+if sys.platform == "win32":
+    import win32com.client
 from pandas.tseries.offsets import BDay
 from openpyxl import load_workbook 
 from pathlib import Path
@@ -696,6 +700,37 @@ light_yellow='FFF2CC'
 # =============================================================================
 # Main Functions
 # =============================================================================
+def get_component_analysis_value():
+    return st.session_state.get("component_analysis", "").strip()
+
+
+def flatten_debug_columns(df):
+    df_debug = df.copy()
+    if isinstance(df_debug.columns, pd.MultiIndex):
+        df_debug.columns = [
+            " ".join([str(part) for part in col if str(part).strip()]).strip()
+            for col in df_debug.columns
+        ]
+    return df_debug
+
+
+def show_component_analysis(label, df, component_col="Component"):
+    component = get_component_analysis_value()
+    if not component or df is None or len(df) == 0:
+        return
+
+    df_debug = flatten_debug_columns(df)
+    if component_col not in df_debug.columns:
+        st.info(f"{label}: columna '{component_col}' no disponible para filtrar.")
+        return
+
+    mask = df_debug[component_col].astype(str).str.contains(component, case=False, na=False, regex=False)
+    filtered = df_debug[mask]
+    st.info(f"{label}: {len(filtered)} filas para '{component}' usando columna '{component_col}'.")
+    if len(filtered) > 0:
+        st.dataframe(filtered)
+
+
 # @note Get bom
 def get_bom():
     path_bom=st.session_state.selected_paths['bom']
@@ -890,6 +925,7 @@ def launch_analysis():
     df_bom_demand.loc[df_bom_demand['PO'].str.contains('FC'),'Component']=df_bom_demand.loc[df_bom_demand['PO'].str.contains('FC'),'MODELO']
     df_bom_demand.loc[df_bom_demand['PO'].str.contains('FC'),'Qty Per']=1
     df_bom_demand['REQ. Total']=df_bom_demand['Qty Per']*df_bom_demand['QTY Pend. Lanzar']
+    show_component_analysis("df_bom_demand despues de calcular REQ. Total", df_bom_demand)
 
     df_bom_max=df_bom_demand.groupby(['Component']).max()[['Qty Per']]
     df_bom_max.reset_index(inplace=True)
@@ -900,6 +936,7 @@ def launch_analysis():
 
 
     df_bom_demand=df_bom_demand[df_bom_demand['REQ. Total']>0]
+    show_component_analysis("df_bom_demand despues de filtrar REQ. Total > 0", df_bom_demand)
 
     if len(df_bom_demand)==0:
         st.error('No se encontraron BOMS para la demanda, favor de revisar el archivo de BOMS')
@@ -934,6 +971,7 @@ def launch_analysis():
     family_cols=pivot_bom_demand.columns
     family_cols=family_cols[1:]
     pivot_bom_demand=pivot_bom_demand.merge(df_bom_max,how='left',on='Component')    
+    show_component_analysis("pivot_bom_demand antes de merge con df_ctb", pivot_bom_demand)
 
     ### 3.2 Consolidar Consumption
     # Este proceso debe tomar unos segundos, si llega a un minuto, revisar si hay mensajes en excel
@@ -1026,6 +1064,7 @@ def launch_analysis():
     df_r['type']='SchdRcpt'
     df_r.rename({'SchdRcpt':'qty','scd_year_month':'year_month'},axis=1,inplace=True)
     df_rl_raw=pd.concat([df_d,df_r])
+    show_component_analysis("df_rl_raw consumo Demand/SchdRcpt", df_rl_raw, component_col="Name")
 
     df_rl_raw[general_cols]=df_rl_raw[general_cols].fillna('')
     df_rl[general_cols]=df_rl[general_cols].fillna('')
@@ -1067,7 +1106,6 @@ def launch_analysis():
 
     df_alloc=df_rl_raw.drop_duplicates(['Name'])[['Name','Allocation']]
     df_alloc.rename({'Name':'Alterno','Allocation':'Aloc Aterno'},axis=1,inplace=True)
-
     #Agregar alternos
     path_alternos=st.session_state.selected_paths['alternos']
     if (path_alternos) and (path_alternos!=''):
@@ -1107,8 +1145,6 @@ def launch_analysis():
     else:
         df_rl_raw[['Adicional','On Hand Adicional','Aloc Adicional']]=["",0,0]
 
-
-
     #Agregar pendiente de recibo
     pend_recibo=df_manifest.groupby(['Part No']).sum('Qty')
     pend_recibo.reset_index(inplace=True)
@@ -1141,7 +1177,6 @@ def launch_analysis():
                         fill_value=0
                             )  
     df_ctb.reset_index(inplace=True)
-
     # Delta comp for columns
     cols=df_ctb['qty'].columns
     cols=[col[0] for col in cols]
@@ -1176,6 +1211,7 @@ def launch_analysis():
         df_ctb=df_ctb.merge(pivot_bom_demand,how='left',on='Component')
         remaining_columns = [col for col in df_ctb.columns if col not in pivot_bom_demand.columns]
         df_ctb=df_ctb[list(pivot_bom_demand.columns)+list(remaining_columns)]
+        show_component_analysis("df_ctb despues de merge con pivot_bom_demand", df_ctb)
 
 
     # Ordeno columnas de Forecast al inicio
@@ -1571,9 +1607,11 @@ def launch_suggestion():
     df_bom_demand=df_bom_demand[~df_bom_demand['Component'].isnull()]
     df_bom_demand['REQ. Total']=df_bom_demand['QTY Pend. Lanzar']*df_bom_demand['Qty Per']
     df_bom_demand=df_bom_demand[['PO','MODELO','P Family','QTY Pend. Lanzar','Component','Qty Per','REQ. Total']]
+    show_component_analysis("launch_suggestion df_bom_demand recalculado", df_bom_demand)
 
     # Componentes disponibles segun el CTB
     df_available=df_ctb[['Component','OH Disp']]
+    show_component_analysis("launch_suggestion disponibilidad desde CTB", df_available)
 
     alloc_priority=0
     completion_left=1
@@ -1588,6 +1626,7 @@ def launch_suggestion():
     df_short_resume=df_short_resume.merge(df_available,how='left',on='Component')
     df_short_resume['short']=df_short_resume['OH Disp']-df_short_resume['REQ. Total']
     df_short_resume=df_short_resume[df_short_resume['short']<0]
+    show_component_analysis("launch_suggestion df_short_resume despues de calcular short", df_short_resume)
 
 
     for idx_po,po_row in df_demand_launch_rdy.iterrows():
@@ -1775,7 +1814,7 @@ try:
     st.set_page_config(page_title="Clear to build", page_icon=":factory:")
 except StreamlitAPIException:
     pass        
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V21. 2025-08-21</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V22. 2026-06-28</div>", unsafe_allow_html=True)
 st.markdown(
     r"""
     <style>
@@ -1829,6 +1868,8 @@ for selector_key, display_label in file_selectors:
     manage_file_selector(selector_key, display_label, state)    
 
 st.header("Clear to Build")
+
+st.text_input("Componente para analisis", key="component_analysis")
 
 if st.button("Comenzar análisis"):
     launch_analysis()
