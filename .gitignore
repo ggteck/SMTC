@@ -16,3 +16,4 @@ PowerBi
 .venv/
 .vscode/
 .~lock*
+.codex
