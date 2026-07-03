@@ -633,6 +633,7 @@ mandatory_cols={'Pendiente':[
                 'BOM':[
                     'BOM',
                     'Component',
+                    'Assembly',
                     'Qty Per',
                     'Type'
                 ],
@@ -728,7 +729,39 @@ def show_component_analysis(label, df, component_col="Component"):
     filtered = df_debug[mask]
     st.info(f"{label}: {len(filtered)} filas para '{component}' usando columna '{component_col}'.")
     if len(filtered) > 0:
-        st.dataframe(filtered)
+        st.dataframe(filtered, width="stretch")
+
+
+def normalize_identifier_value(value):
+    if pd.isna(value):
+        return ''
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def load_ctb_tablillas_total(path_ctb_tablillas):
+    df_tablillas_total=read_excel(path_ctb_tablillas,sheet_name='CTB',header=2)
+    df_tablillas_total=df_tablillas_total.loc[:, ~df_tablillas_total.columns.astype(str).str.startswith('Unnamed')]
+    missing_columns=[col for col in ['Component','Total'] if col not in df_tablillas_total.columns]
+    if len(missing_columns)>0:
+        st.warning(f"No se encontraron columnas {missing_columns} en CTB KRS_tablillas.xlsx")
+        return pd.DataFrame(columns=['Component','Total Tablillas'])
+    df_tablillas_total=df_tablillas_total[['Component','Total']].copy()
+    df_tablillas_total.rename({'Total':'Total Tablillas'},axis=1,inplace=True)
+    df_tablillas_total=df_tablillas_total.dropna(subset=['Component'])
+    df_tablillas_total=df_tablillas_total.groupby('Component',as_index=False).agg({'Total Tablillas':'first'})
+    return df_tablillas_total
+
+
+def get_ctb_tablillas_enabled():
+    return bool(st.session_state.get("ctb_tablillas", False))
+
+
+def get_ctb_tablillas_active():
+    active = bool(st.session_state.get("ctb_tablillas_active", get_ctb_tablillas_enabled()))
+    st.session_state.ctb_tablillas_active = active
+    return active
 
 
 # @note Get bom
@@ -737,11 +770,22 @@ def get_bom():
     if not os.path.exists(path_bom):
         st.info(f"No se ha encontrado el archivo {path_bom}")
         raise SystemExit()   
+    ctb_tablillas_active=get_ctb_tablillas_active()
     df_bom=read_excel(path_bom,sheet_name='Flat Bill Browser - Cost Roll U')
-    check_mandatory_cols(df_bom.columns,'BOM')
-    df_bom=df_bom[mandatory_cols['BOM']]
-    # df_bom[df_bom['Type']!='Y']
-    df_bom.rename({'BOM':'MODELO'},axis=1,inplace=True)
+    bom_cols=mandatory_cols['BOM'].copy()
+    if not ctb_tablillas_active and 'Assembly' in bom_cols:
+        bom_cols.remove('Assembly')
+    missing_columns = [col for col in bom_cols if col not in df_bom.columns]
+    if len(missing_columns)>0:
+        st.error(f"No se encontraron las siguientes columnas en el archivo BOM: {missing_columns}")
+        st.stop()
+    df_bom=df_bom[bom_cols]
+    if ctb_tablillas_active:
+        df_bom.rename({'Assembly':'MODELO'},axis=1,inplace=True)
+        df_bom.drop(columns=['BOM'],inplace=True)
+        df_bom.drop_duplicates(keep='first',inplace=True)
+    else:
+        df_bom.rename({'BOM':'MODELO'},axis=1,inplace=True)
     return df_bom
 
 def launch_analysis():
@@ -751,18 +795,24 @@ def launch_analysis():
         st.session_state.selected_paths['tablillas']=''
     if 'independent_demands' not in st.session_state.selected_paths:
         st.session_state.selected_paths['independent_demands']=''
+    if 'work_order_action' not in st.session_state.selected_paths:
+        st.session_state.selected_paths['work_order_action']=''
     validate_selected_paths([('korrus', True), ('bom', True), ('wos', True), ('alternos', False)],msg_launch_analysis)
-    if (st.session_state.selected_paths['tablillas']=='') &\
-          (st.session_state.selected_paths['independent_demands']==''):
-        msg_launch_analysis.error("Seleccione Independent Demands o Tablillas")
-    if (st.session_state.selected_paths['tablillas']!='') &\
-          (st.session_state.selected_paths['independent_demands']!=''):
-        msg_launch_analysis.error("Seleccione SOLO Independent Demands o Tablillas")
+    ctb_tablillas_active=get_ctb_tablillas_enabled()
+    st.session_state.ctb_tablillas_active = ctb_tablillas_active
     path_demanda_tablillas=st.session_state.selected_paths['tablillas']
-    if path_demanda_tablillas=='':
-        st.session_state.path_launch=os.path.join(st.session_state.folder_output,'Analisis_lanzamiento.xlsx')
-    else:
+    path_work_order_action=st.session_state.selected_paths['work_order_action']
+    path_demand=st.session_state.selected_paths['independent_demands']
+    if ctb_tablillas_active and path_work_order_action=='':
+        msg_launch_analysis.error("Seleccione Work Order Action para CTB Tablillas")
+        st.stop()
+    if (not ctb_tablillas_active) and path_demand=='':
+        msg_launch_analysis.error("Seleccione Independent Demands")
+        st.stop()
+    if ctb_tablillas_active:
         st.session_state.path_launch=os.path.join(st.session_state.folder_output,'Analisis_lanzamiento_tablillas.xlsx')
+    else:
+        st.session_state.path_launch=os.path.join(st.session_state.folder_output,'Analisis_lanzamiento.xlsx')
     close_xl_if_open(st.session_state.path_launch)
 
     df_notes=pd.DataFrame()
@@ -785,7 +835,7 @@ def launch_analysis():
                 check_mandatory_cols(df.columns,selector_name='WOS')
                 df=df[~df['Modelo'].isna()]
                 df_lanzadas=pd.concat([df_lanzadas,df])
-        if path_demanda_tablillas!='':
+        if ctb_tablillas_active:
             df_lanzadas=df_lanzadas[df_lanzadas['Area']=='BOX']
         df_lanzadas_raw=df_lanzadas.copy()
         df_lanzadas['status Orden'].fillna('',inplace=True)
@@ -804,10 +854,11 @@ def launch_analysis():
                         "WO\n QTY_sum":"Total Wos lanzadas"
                         },axis=1,inplace=True)
         df_lanzadas.reset_index(inplace=True)
+        df_lanzadas['WO']=df_lanzadas['WO'].map(normalize_identifier_value)
 
-    if path_demanda_tablillas!='':
+    if ctb_tablillas_active:
         # Demanda de tablillas
-        df_demand=read_excel(path_demanda_tablillas,sheet_name='Work Order Action Report')
+        df_demand=read_excel(path_work_order_action,sheet_name='Work Order Action Report')
         check_mandatory_cols(df_demand.columns,'Work Order Action')
         df_demand.rename({"UDF Ref":"P Family",
                         "Part":"MODELO",
@@ -819,8 +870,7 @@ def launch_analysis():
 
 
     df_korrus=pd.DataFrame(columns=['PO','MODELO','Quantity'])
-    path_demand=st.session_state.selected_paths['independent_demands']
-    if path_demand!='':
+    if not ctb_tablillas_active:
         # Demanda de componentes finales
         df_demand=read_excel(path_demand,sheet_name='Independent Demands')
         check_mandatory_cols(df_demand.columns,'Independent Demands')
@@ -860,19 +910,19 @@ def launch_analysis():
     """
     ### Demanda:
     """
-    st.dataframe(df_demand)
+    st.dataframe(df_demand, width="stretch")
     """
     ### Ordenes lanzadas:
     """
-    st.dataframe(df_lanzadas)
+    st.dataframe(df_lanzadas, width="stretch")
     df_demand=df_demand.merge(df_lanzadas,how='left',on=['PO','MODELO'])
 
-    df_demand['WO']=df_demand['WO'].fillna(0).astype(int)
+    df_demand['WO']=df_demand['WO'].map(normalize_identifier_value)
     #Familia para la demanda por lanzar
     idx=df_demand['PO'].str.contains('FC')
 
     #Familia para el forecast
-    if path_demand!='':
+    if not ctb_tablillas_active:
         df_demand.loc[~idx,'Familia']=df_demand.loc[~idx,'MODELO'].str[:8]
         df_demand.loc[idx,'Familia']='FC-'+df_demand.loc[idx,'P Family']
         df_demand['Familia']=df_demand['Familia'].str.rstrip('-')
@@ -931,7 +981,8 @@ def launch_analysis():
     df_bom_max.reset_index(inplace=True)
     df_bom_max.rename({'Qty Per':'QTY PER MAX GRAL'},axis=1,inplace=True)
 
-    path_bom_demand=os.path.join(st.session_state.folder_output,'bom_demand.xlsx')
+    bom_demand_filename='bom_demand_tablillas.xlsx' if ctb_tablillas_active else 'bom_demand.xlsx'
+    path_bom_demand=os.path.join(st.session_state.folder_output,bom_demand_filename)
     save_df(df_bom_demand,path_bom_demand,'bom_demand',index=False)
 
 
@@ -979,10 +1030,10 @@ def launch_analysis():
 
     path_ctb=os.path.join(st.session_state.folder_output,'CTB KRS.xlsx')
 
-    if path_demanda_tablillas=='':
-        path_ctb=os.path.join(st.session_state.folder_output,'CTB KRS.xlsx')
-    else:
+    if ctb_tablillas_active:
         path_ctb=os.path.join(st.session_state.folder_output,'CTB KRS_tablillas.xlsx')
+    else:
+        path_ctb=os.path.join(st.session_state.folder_output,'CTB KRS.xlsx')
 
     col_sizes=[]
     if os.path.exists(path_ctb):
@@ -1120,7 +1171,7 @@ def launch_analysis():
         df_rl_raw[['Alterno','ON hand','Aloc Aterno']]=["",0,0]
         
     #Agregar tablillas adicionales
-    path_adicionales=st.session_state.selected_paths['tablillas']
+    path_adicionales=path_demanda_tablillas
     if (path_adicionales) and (path_adicionales!=''):
         df_adicionales=read_excel(path_adicionales)
         check_mandatory_cols(df_adicionales.columns,'Tablillas')
@@ -1213,6 +1264,14 @@ def launch_analysis():
         df_ctb=df_ctb[list(pivot_bom_demand.columns)+list(remaining_columns)]
         show_component_analysis("df_ctb despues de merge con pivot_bom_demand", df_ctb)
 
+    total_tablillas_col=('Total Tablillas','','')
+    path_ctb_tablillas=os.path.join(st.session_state.folder_output,'CTB KRS_tablillas.xlsx')
+    if (not ctb_tablillas_active) and os.path.exists(path_ctb_tablillas):
+        df_tablillas_total=load_ctb_tablillas_total(path_ctb_tablillas)
+        if len(df_tablillas_total)>0:
+            component_col=('Component','','') if ('Component','','') in df_ctb.columns else 'Component'
+            total_tablillas_by_component=df_tablillas_total.set_index('Component')['Total Tablillas']
+            df_ctb[total_tablillas_col]=df_ctb[component_col].map(total_tablillas_by_component)
 
     # Ordeno columnas de Forecast al inicio
     family_cols = family_cols.tolist()
@@ -1238,6 +1297,7 @@ def launch_analysis():
                 (                 'Note','',''),
                 (              'OH Disp','',''),
                 (                'Total','',''),
+                *([total_tablillas_col] if total_tablillas_col in df_ctb.columns else []),
                 (                  ' PP','',''),
                 (                   'NR','',''),
                 (           'Allocation','',''),
@@ -1523,11 +1583,11 @@ def launch_suggestion():
                              ('po_wo_info', False),
                              ('alternos', False)
                              ],msg_launch_suggestion)
-    path_demanda_tablillas=st.session_state.selected_paths['tablillas']
-    if path_demanda_tablillas=='':
-        path_ctb=os.path.join(st.session_state.folder_output,'CTB KRS.xlsx')
-    else:
+    ctb_tablillas_active=get_ctb_tablillas_active()
+    if ctb_tablillas_active:
         path_ctb=os.path.join(st.session_state.folder_output,'CTB KRS_tablillas.xlsx')
+    else:
+        path_ctb=os.path.join(st.session_state.folder_output,'CTB KRS.xlsx')
     close_xl_if_open(path_ctb)
 
     # Definir componentes criticos por cliente
@@ -1811,7 +1871,7 @@ except Exception as e:
     st.warning("Seleccione la carpeta de trabajo y reinicie")
     st.error(f"Error: {e}")
 try:
-    st.set_page_config(page_title="Clear to build", page_icon=":factory:")
+    st.set_page_config(page_title="Clear to build", page_icon=":factory:", layout="wide")
 except StreamlitAPIException:
     pass        
 st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V22. 2026-06-28</div>", unsafe_allow_html=True)
@@ -1830,6 +1890,10 @@ custom_css = """
 <style>
 .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
     font-size: 1.5rem; /* Adjust this value as needed */
+}
+[data-testid="stDataFrame"],
+[data-testid="stDataFrame"] > div {
+    width: 100% !important;
 }
 </style>
 """
@@ -1871,8 +1935,19 @@ st.header("Clear to Build")
 
 st.text_input("Componente para analisis", key="component_analysis")
 
-if st.button("Comenzar análisis"):
-    launch_analysis()
+if "ctb_tablillas" not in st.session_state:
+    st.session_state.ctb_tablillas = False
+
+col_start_analysis, col_ctb_tablillas = st.columns([1, 3])
+with col_start_analysis:
+    if st.button("Comenzar análisis"):
+        launch_analysis()
+with col_ctb_tablillas:
+    st.toggle(
+        "CTB Tablillas",
+        key="ctb_tablillas",
+        help="Usar el archivo Tablillas para generar Analisis_lanzamiento_tablillas.xlsx y CTB KRS_tablillas.xlsx.",
+    )
 
 st.header("Sugerencia de lanzamientos")
 
