@@ -633,7 +633,6 @@ mandatory_cols={'Pendiente':[
                 'BOM':[
                     'BOM',
                     'Component',
-                    'Assembly',
                     'Qty Per',
                     'Type'
                 ],
@@ -754,6 +753,13 @@ def load_ctb_tablillas_total(path_ctb_tablillas):
     return df_tablillas_total
 
 
+def set_last_due_date_per_po(df):
+    df=df.copy()
+    df['Due Date']=pd.to_datetime(df['Due Date'],errors='coerce')
+    df['Due Date']=df.groupby('PO')['Due Date'].transform('max')
+    return df
+
+
 def get_ctb_tablillas_enabled():
     return bool(st.session_state.get("ctb_tablillas", False))
 
@@ -766,26 +772,20 @@ def get_ctb_tablillas_active():
 
 # @note Get bom
 def get_bom():
-    path_bom=st.session_state.selected_paths['bom']
+    ctb_tablillas_active=get_ctb_tablillas_active()
+    bom_key='bom_tablillas' if ctb_tablillas_active else 'bom'
+    path_bom=st.session_state.selected_paths.get(bom_key,'')
     if not os.path.exists(path_bom):
         st.info(f"No se ha encontrado el archivo {path_bom}")
         raise SystemExit()   
-    ctb_tablillas_active=get_ctb_tablillas_active()
-    df_bom=read_excel(path_bom,sheet_name='Flat Bill Browser - Cost Roll U')
+    df_bom=load_excel_with_header_key(path_bom,sheet_name='Flat Bill Browser - Cost Roll U',key_text='BOM')
     bom_cols=mandatory_cols['BOM'].copy()
-    if not ctb_tablillas_active and 'Assembly' in bom_cols:
-        bom_cols.remove('Assembly')
     missing_columns = [col for col in bom_cols if col not in df_bom.columns]
     if len(missing_columns)>0:
         st.error(f"No se encontraron las siguientes columnas en el archivo BOM: {missing_columns}")
         st.stop()
     df_bom=df_bom[bom_cols]
-    if ctb_tablillas_active:
-        df_bom.rename({'Assembly':'MODELO'},axis=1,inplace=True)
-        df_bom.drop(columns=['BOM'],inplace=True)
-        df_bom.drop_duplicates(keep='first',inplace=True)
-    else:
-        df_bom.rename({'BOM':'MODELO'},axis=1,inplace=True)
+    df_bom.rename({'BOM':'MODELO'},axis=1,inplace=True)
     return df_bom
 
 def launch_analysis():
@@ -797,9 +797,12 @@ def launch_analysis():
         st.session_state.selected_paths['independent_demands']=''
     if 'work_order_action' not in st.session_state.selected_paths:
         st.session_state.selected_paths['work_order_action']=''
-    validate_selected_paths([('korrus', True), ('bom', True), ('wos', True), ('alternos', False)],msg_launch_analysis)
+    if 'bom_tablillas' not in st.session_state.selected_paths:
+        st.session_state.selected_paths['bom_tablillas']=''
     ctb_tablillas_active=get_ctb_tablillas_enabled()
     st.session_state.ctb_tablillas_active = ctb_tablillas_active
+    required_bom_key='bom_tablillas' if ctb_tablillas_active else 'bom'
+    validate_selected_paths([('korrus', True), (required_bom_key, True), ('wos', True), ('alternos', False)],msg_launch_analysis)
     path_demanda_tablillas=st.session_state.selected_paths['tablillas']
     path_work_order_action=st.session_state.selected_paths['work_order_action']
     path_demand=st.session_state.selected_paths['independent_demands']
@@ -879,6 +882,7 @@ def launch_analysis():
                     "FCST / RR  Unit Price":"Price",
                     "Qty":"REQ"
                     },axis=1,inplace=True)
+        df_demand=set_last_due_date_per_po(df_demand)
         
         df_demand=df_demand.groupby(['P Family','PO','MODELO','Due Date']).agg({
             'REQ':'sum',
@@ -896,6 +900,7 @@ def launch_analysis():
         df_demand=df_demand.merge(df_korrus,how='left',on=['MODELO','PO'])
         df_demand.rename({'REQ':'IDemand REQ','Quantity':'REQ'},axis=1,inplace=True)
     else:
+        df_demand=set_last_due_date_per_po(df_demand)
         df_demand=df_demand.groupby(['P Family','PO','MODELO','Due Date']).agg({
             'IDemand REQ':'sum',
             'REQ':'sum',
@@ -1259,7 +1264,10 @@ def launch_analysis():
             pivot_bom_demand.columns=multiindex_columns
         pivot_bom_demand['Simulacion']=''
         pivot_bom_demand['CTB']=''
-        df_ctb=df_ctb.merge(pivot_bom_demand,how='left',on='Component')
+        if ctb_tablillas_active:
+            df_ctb=df_ctb.merge(pivot_bom_demand,on='Component')
+        else:
+            df_ctb=df_ctb.merge(pivot_bom_demand,how='left',on='Component')
         remaining_columns = [col for col in df_ctb.columns if col not in pivot_bom_demand.columns]
         df_ctb=df_ctb[list(pivot_bom_demand.columns)+list(remaining_columns)]
         show_component_analysis("df_ctb despues de merge con pivot_bom_demand", df_ctb)
@@ -1484,6 +1492,9 @@ def launch_analysis():
     cell=ws[find_cell_by_text(ws,"Aloc Adicional")]
     cell.fill = PatternFill(start_color=melon, end_color=melon, fill_type="solid")
     cell.alignment=Alignment(text_rotation=90,horizontal='center', vertical='center')
+    cell=ws[find_cell_by_text(ws,"Total Tablillas")]
+    cell.fill = PatternFill(start_color=melon, end_color=melon, fill_type="solid")
+    cell.alignment=Alignment(text_rotation=90,horizontal='center', vertical='center')
 
     # Formulas
 
@@ -1577,13 +1588,14 @@ def launch_suggestion():
         msg_launch_suggestion.error("Favor de ejecutar el CTB")
         st.stop()
     close_xl_if_open(st.session_state.path_launch)
+    ctb_tablillas_active=get_ctb_tablillas_active()
+    required_bom_key='bom_tablillas' if ctb_tablillas_active else 'bom'
     validate_selected_paths([('korrus', True), 
-                             ('bom', True), 
+                             (required_bom_key, True), 
                              ('wos', True), 
                              ('po_wo_info', False),
                              ('alternos', False)
                              ],msg_launch_suggestion)
-    ctb_tablillas_active=get_ctb_tablillas_active()
     if ctb_tablillas_active:
         path_ctb=os.path.join(st.session_state.folder_output,'CTB KRS_tablillas.xlsx')
     else:
@@ -1846,20 +1858,19 @@ def gating_parts():
 # Main Script: Streamlit App UI
 # =============================================================================
 def manage_file_selector(selector_key, display_label, state):
-    if not state["selections"].get(selector_key):
-        if st.button(f"{display_label} File", key=f"select_{selector_key}"):
-            files = open_file_selection(initialdir=state["folder_output"] or os.getcwd())
-            if files:
-                state["selections"][selector_key] = files[0]
-                save_state_pickle(state,filename=path_pickle)
-                st.rerun()
-        st.info(f"{display_label} no seleccionado.")
-    else:
-        st.success(f"Selected {display_label} File: {state['selections'][selector_key]}")
-        if st.button(f"Change {display_label} File", key=f"change_{selector_key}"):
-            state["selections"][selector_key] = ""
+    selected_path=state["selections"].get(selector_key)
+    button_label=f"Change {display_label} File" if selected_path else f"{display_label} File"
+    if st.button(button_label, key=f"select_{selector_key}"):
+        files = open_file_selection(initialdir=state["folder_output"] or os.getcwd())
+        if files:
+            state["selections"][selector_key] = files[0]
             save_state_pickle(state,filename=path_pickle)
             st.rerun()
+    selected_path=state["selections"].get(selector_key)
+    if selected_path:
+        st.success(f"Selected {display_label} File: {selected_path}")
+    else:
+        st.info(f"{display_label} no seleccionado.")
 
 path_pickle=os.path.join(Path(__file__).parent,'folder_state_clear_to_build.pkl')
 state = load_state_pickle(path_pickle)
@@ -1900,7 +1911,8 @@ custom_css = """
 st.markdown(custom_css, unsafe_allow_html=True)
 
 st.header("Seleccionar carpeta de trabajo")
-if st.button("Seleccionar carpeta", key="select_folder"):
+folder_button_label="Cambiar carpeta" if state["folder_output"] else "Seleccionar carpeta"
+if st.button(folder_button_label, key="select_folder"):
     folder = select_directory(initialdir=state["folder_output"] or os.getcwd())
     if folder:
         state["folder_output"] = folder
@@ -1920,6 +1932,7 @@ file_selectors = [
         ('pendiente','Pendiente'),
         ('wos','WOS'),
         ('bom','BOM'),
+        ('bom_tablillas','BOM Tablillas'),
         ('bom_detail','BOM Detail'),
         ('alternos','Alternos'),
         ('po_wo_info','PO WO Info'),
