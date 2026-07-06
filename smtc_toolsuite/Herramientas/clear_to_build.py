@@ -339,7 +339,8 @@ def load_state_pickle(filename='folder_state.pkl'):
         return {
             "folder_output": None,
             "selections": {},
-            "plan_name": ""
+            "plan_name": "",
+            "ctb_tablillas_active": False
         }
 def is_file_open(filepath):
     # Check if the file exists
@@ -369,6 +370,12 @@ def _persist_plan_name():
     # Toma el valor actual del input y lo conserva tanto en session_state como en el pickle
     state["plan_name"] = st.session_state.get("txt_plan_name", "")
     st.session_state.plan_name = state["plan_name"]
+    save_state_pickle(state, filename=path_pickle)
+
+
+def _persist_ctb_tablillas_active():
+    state["ctb_tablillas_active"] = bool(st.session_state.get("ctb_tablillas", False))
+    st.session_state.ctb_tablillas_active = state["ctb_tablillas_active"]
     save_state_pickle(state, filename=path_pickle)
 
 # =============================================================================
@@ -1492,9 +1499,11 @@ def launch_analysis():
     cell=ws[find_cell_by_text(ws,"Aloc Adicional")]
     cell.fill = PatternFill(start_color=melon, end_color=melon, fill_type="solid")
     cell.alignment=Alignment(text_rotation=90,horizontal='center', vertical='center')
-    cell=ws[find_cell_by_text(ws,"Total Tablillas")]
-    cell.fill = PatternFill(start_color=melon, end_color=melon, fill_type="solid")
-    cell.alignment=Alignment(text_rotation=90,horizontal='center', vertical='center')
+    total_tablillas_cell=find_cell_by_text(ws,"Total Tablillas")
+    if total_tablillas_cell:
+        cell=ws[total_tablillas_cell]
+        cell.fill = PatternFill(start_color=melon, end_color=melon, fill_type="solid")
+        cell.alignment=Alignment(text_rotation=90,horizontal='center', vertical='center')
 
     # Formulas
 
@@ -1874,8 +1883,10 @@ def manage_file_selector(selector_key, display_label, state):
 
 path_pickle=os.path.join(Path(__file__).parent,'folder_state_clear_to_build.pkl')
 state = load_state_pickle(path_pickle)
+state.setdefault("ctb_tablillas_active", False)
 st.session_state.folder_output = state['folder_output']
 st.session_state.selected_paths = state['selections']
+st.session_state.ctb_tablillas_active = bool(state["ctb_tablillas_active"])
 try:
     st.session_state.output_paths = set_paths(st.session_state.folder_output)
 except Exception as e:
@@ -1949,7 +1960,7 @@ st.header("Clear to Build")
 st.text_input("Componente para analisis", key="component_analysis")
 
 if "ctb_tablillas" not in st.session_state:
-    st.session_state.ctb_tablillas = False
+    st.session_state.ctb_tablillas = st.session_state.ctb_tablillas_active
 
 col_start_analysis, col_ctb_tablillas = st.columns([1, 3])
 with col_start_analysis:
@@ -1959,6 +1970,7 @@ with col_ctb_tablillas:
     st.toggle(
         "CTB Tablillas",
         key="ctb_tablillas",
+        on_change=_persist_ctb_tablillas_active,
         help="Usar el archivo Tablillas para generar Analisis_lanzamiento_tablillas.xlsx y CTB KRS_tablillas.xlsx.",
     )
 
