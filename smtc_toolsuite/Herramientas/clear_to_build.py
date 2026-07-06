@@ -1521,12 +1521,18 @@ def launch_analysis():
     # Suma de familias
     req_cells=[find_cell_by_text(ws,x) for x in req_family_cols]
     col_head_address=ws[find_cell_by_text(ws,'Req. total')].offset(1,0).coordinate
+    total_tablillas_cell=find_cell_by_text(ws,'Total Tablillas')
     for row in ws[f"{col_head_address}:{last_cell}"]:
         req_cells_str=""
         for cell in req_cells:
             req_cells_str=f"{req_cells_str}{ws.cell(row[0].row,ws[cell].column).coordinate},"
         req_cells_str=req_cells_str[:-1]
-        row[0].value=f"=sum({req_cells_str})"
+        family_sum_formula=f"SUM({req_cells_str})" if req_cells_str else "0"
+        if total_tablillas_cell:
+            total_tablillas_address=ws.cell(row[0].row,ws[total_tablillas_cell].column).coordinate
+            row[0].value=f"=IF({total_tablillas_address}<>0,{total_tablillas_address},{family_sum_formula})"
+        else:
+            row[0].value=f"={family_sum_formula}"
 
     # Formula Delta
     cell_a=find_cell_by_text(ws,'OH Disp')
