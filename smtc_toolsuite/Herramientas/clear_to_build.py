@@ -749,12 +749,23 @@ def normalize_identifier_value(value):
 def load_ctb_tablillas_total(path_ctb_tablillas):
     df_tablillas_total=read_excel(path_ctb_tablillas,sheet_name='CTB',header=2)
     df_tablillas_total=df_tablillas_total.loc[:, ~df_tablillas_total.columns.astype(str).str.startswith('Unnamed')]
-    missing_columns=[col for col in ['Component','Total'] if col not in df_tablillas_total.columns]
+    req_total_cols=[col for col in df_tablillas_total.columns if str(col).startswith('REQ. Total') and 'FC-' not in str(col)]
+    missing_columns=[col for col in ['Component'] if col not in df_tablillas_total.columns]
+    if 'Req. total' not in df_tablillas_total.columns and len(req_total_cols)==0:
+        missing_columns.append('Req. total')
     if len(missing_columns)>0:
         st.warning(f"No se encontraron columnas {missing_columns} en CTB KRS_tablillas.xlsx")
         return pd.DataFrame(columns=['Component','Total Tablillas'])
-    df_tablillas_total=df_tablillas_total[['Component','Total']].copy()
-    df_tablillas_total.rename({'Total':'Total Tablillas'},axis=1,inplace=True)
+    df_tablillas_total=df_tablillas_total.copy()
+    if 'Req. total' in df_tablillas_total.columns:
+        df_tablillas_total['Total Tablillas']=pd.to_numeric(df_tablillas_total['Req. total'],errors='coerce')
+    else:
+        df_tablillas_total['Total Tablillas']=0
+    if len(req_total_cols)>0:
+        req_total_sum=df_tablillas_total[req_total_cols].apply(pd.to_numeric,errors='coerce').fillna(0).sum(axis=1)
+        idx=df_tablillas_total['Total Tablillas'].isna() | ((df_tablillas_total['Total Tablillas']==0) & (req_total_sum!=0))
+        df_tablillas_total.loc[idx,'Total Tablillas']=req_total_sum[idx]
+    df_tablillas_total=df_tablillas_total[['Component','Total Tablillas']]
     df_tablillas_total=df_tablillas_total.dropna(subset=['Component'])
     df_tablillas_total=df_tablillas_total.groupby('Component',as_index=False).agg({'Total Tablillas':'first'})
     return df_tablillas_total
