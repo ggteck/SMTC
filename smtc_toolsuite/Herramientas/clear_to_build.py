@@ -1703,6 +1703,8 @@ def launch_suggestion():
     df_bom_demand=df_demand_launch_rdy.merge(df_bom,how='left',on=['MODELO'])
     df_missing=df_bom_demand[df_bom_demand['Component'].isnull()]
     df_bom_demand=df_bom_demand[~df_bom_demand['Component'].isnull()]
+    df_bom_demand['QTY Pend. Lanzar']=pd.to_numeric(df_bom_demand['QTY Pend. Lanzar'], errors='coerce').fillna(0)
+    df_bom_demand['Qty Per']=pd.to_numeric(df_bom_demand['Qty Per'], errors='coerce').fillna(0)
     df_bom_demand['REQ. Total']=df_bom_demand['QTY Pend. Lanzar']*df_bom_demand['Qty Per']
     df_bom_demand=df_bom_demand[['PO','MODELO','P Family','QTY Pend. Lanzar','Component','Qty Per','REQ. Total']]
     show_component_analysis("launch_suggestion df_bom_demand recalculado", df_bom_demand)
@@ -1718,8 +1720,7 @@ def launch_suggestion():
 
     df_available_left=df_available.copy()
     df_short_detail=pd.DataFrame()
-    df_short_resume=df_bom_demand.groupby('Component').sum('REQ. Total')[['REQ. Total']]
-    df_short_resume.reset_index(inplace=True)
+    df_short_resume=df_bom_demand.groupby('Component', as_index=False)['REQ. Total'].sum()
 
     df_short_resume=df_short_resume.merge(df_available,how='left',on='Component')
     df_short_resume['short']=df_short_resume['OH Disp']-df_short_resume['REQ. Total']
@@ -1843,9 +1844,11 @@ def launch_suggestion():
 
     wb.close()
 
-    os.startfile(st.session_state.path_launch)
-    os.startfile(path_ctb)
-
+    try:
+        os.startfile(st.session_state.path_launch)
+        os.startfile(path_ctb)
+    except:
+        msg_launch_suggestion.info("El archivo CTB esta listo.")
 # @note Gating parts
 def gating_parts():
     # Reporte Gating Parts
