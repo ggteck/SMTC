@@ -1724,6 +1724,23 @@ def launch_suggestion():
 
     df_short_resume=df_short_resume.merge(df_available,how='left',on='Component')
     df_short_resume['short']=df_short_resume['OH Disp']-df_short_resume['REQ. Total']
+    df_short_resume['REQ de Tablillas']=''
+    if (not ctb_tablillas_active) and len(df_short_resume)>0:
+        path_ctb_tablillas=os.path.join(st.session_state.folder_output,'CTB KRS_tablillas.xlsx')
+        if os.path.exists(path_ctb_tablillas):
+            df_tablillas_total=load_ctb_tablillas_total(path_ctb_tablillas)
+            if len(df_tablillas_total)>0:
+                df_tablillas_total=df_tablillas_total.rename({'Total Tablillas':'REQ. Total Tablillas'},axis=1)
+                df_short_resume=df_short_resume.merge(
+                    df_tablillas_total[['Component','REQ. Total Tablillas']],
+                    how='left',
+                    on='Component'
+                )
+                idx_req_tablillas=df_short_resume['REQ. Total Tablillas'].notna()
+                df_short_resume.loc[idx_req_tablillas,'REQ. Total']=df_short_resume.loc[idx_req_tablillas,'REQ. Total Tablillas']
+                df_short_resume.loc[idx_req_tablillas,'REQ de Tablillas']='y'
+                df_short_resume.drop('REQ. Total Tablillas',axis=1,inplace=True)
+    df_short_resume['short']=df_short_resume['OH Disp']-df_short_resume['REQ. Total']
     df_short_resume=df_short_resume[df_short_resume['short']<0]
     show_component_analysis("launch_suggestion df_short_resume despues de calcular short", df_short_resume)
 
