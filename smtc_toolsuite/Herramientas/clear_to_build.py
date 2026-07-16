@@ -1348,7 +1348,7 @@ def launch_analysis():
     modified_columns = [(col[0], col[1], col[2]) if 'qty' in col[0] else ('', '', col[0]) for col in ordered_cols]
     multiindex_columns = pd.MultiIndex.from_tuples(modified_columns)
     df_ctb.columns=multiindex_columns
-    df_ctb.fillna(0,inplace=True)
+    fill_missing_by_dtype(df_ctb)
     append_sheet(df_ctb,path_ctb,'CTB',index=True)
     #### 3.4.1 Formato de CTB
     #Formato al CTB
