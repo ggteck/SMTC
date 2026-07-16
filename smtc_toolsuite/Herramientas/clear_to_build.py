@@ -125,6 +125,7 @@ from streamlit.errors import StreamlitAPIException
 from openpyxl.styles import PatternFill, Alignment, Font
 from openpyxl.formatting.rule import CellIsRule
 import uuid
+import re
 try: 
     from Herramientas.excel_normalizer import ExcelNormalizer
 except:
@@ -337,6 +338,10 @@ def get_xl_formatting(table_name=None):
 # =============================================================================
 # Persistence / State Management
 # =============================================================================
+DEFAULT_CRITICAL_COMPONENTS = {
+    "TROV1.0": ["APC-"],
+    "RISE": ["PCB-"],
+}
 
 def save_state_pickle(state, filename='folder_state.pkl'):
     with open(filename, 'wb') as f:
@@ -351,8 +356,32 @@ def load_state_pickle(filename='folder_state.pkl'):
             "folder_output": None,
             "selections": {},
             "plan_name": "",
-            "ctb_tablillas_active": False
+            "ctb_tablillas_active": False,
+            "critical_components": DEFAULT_CRITICAL_COMPONENTS.copy(),
         }
+
+def critical_components_to_df(critical_components):
+    rows = []
+    for pfamily, components in critical_components.items():
+        for component in components:
+            rows.append({"P Family": pfamily, "Componente": component})
+    return pd.DataFrame(rows, columns=["P Family", "Componente"])
+
+def critical_components_from_df(df):
+    critical_components = {}
+    if df is None or len(df) == 0:
+        return critical_components
+    df = df.astype(object).fillna('')
+    for _, row in df.iterrows():
+        pfamily = str(row.get("P Family", "")).strip()
+        component = str(row.get("Componente", "")).strip()
+        if not pfamily or not component:
+            continue
+        critical_components.setdefault(pfamily, [])
+        if component not in critical_components[pfamily]:
+            critical_components[pfamily].append(component)
+    return critical_components
+
 def is_file_open(filepath):
     # Check if the file exists
     if not os.path.exists(filepath):
@@ -1636,9 +1665,7 @@ def launch_suggestion():
         path_ctb=os.path.join(st.session_state.folder_output,'CTB KRS.xlsx')
     close_xl_if_open(path_ctb)
 
-    # Definir componentes criticos por cliente
-    critical_components={"TROV1.0":["APC-"],
-                        "RISE":["PCB-"]}
+    critical_components=st.session_state.get("critical_components", DEFAULT_CRITICAL_COMPONENTS.copy())
 
     def substract_bom(df_demand, df_mat):
         """
@@ -1669,8 +1696,12 @@ def launch_suggestion():
         df_demand_new.reset_index(drop=True,inplace=True)
         df_mat_new.fillna(0,inplace=True)
         critical_short=False
-        for pfam in critical_components.keys():
-            df=df_demand_new[(df_demand_new['Component'].str.contains('|'.join(critical_components[pfam])))&
+        for pfam, components in critical_components.items():
+            components=[component for component in components if component]
+            if not components:
+                continue
+            component_pattern='|'.join(re.escape(component) for component in components)
+            df=df_demand_new[(df_demand_new['Component'].astype(str).str.contains(component_pattern, na=False))&
                             (df_demand_new['P Family']==pfam)&
                             (df_demand_new['short']<0)]
             if len(df)>0:
@@ -1942,9 +1973,13 @@ def manage_file_selector(selector_key, display_label, state):
 path_pickle=os.path.join(Path(__file__).parent,'folder_state_clear_to_build.pkl')
 state = load_state_pickle(path_pickle)
 state.setdefault("ctb_tablillas_active", False)
+if "critical_components" not in state:
+    state["critical_components"] = DEFAULT_CRITICAL_COMPONENTS.copy()
+    save_state_pickle(state, filename=path_pickle)
 st.session_state.folder_output = state['folder_output']
 st.session_state.selected_paths = state['selections']
 st.session_state.ctb_tablillas_active = bool(state["ctb_tablillas_active"])
+st.session_state.critical_components = state["critical_components"]
 try:
     st.session_state.output_paths = set_paths(st.session_state.folder_output)
 except Exception as e:
@@ -2043,6 +2078,19 @@ max_allowed_shorts = st.slider(
     help="Cantidad por default de cortos máximos aceptables",
     key="max_allowed_shorts"
 )
+
+critical_components_df = st.data_editor(
+    critical_components_to_df(state["critical_components"]),
+    column_order=["P Family", "Componente"],
+    num_rows="dynamic",
+    hide_index=True,
+    key="critical_components_editor",
+)
+critical_components = critical_components_from_df(critical_components_df)
+if critical_components != state["critical_components"]:
+    state["critical_components"] = critical_components
+    st.session_state.critical_components = critical_components
+    save_state_pickle(state, filename=path_pickle)
 
 if st.button("Comenzar proceso"):
     launch_suggestion()
