@@ -1209,8 +1209,7 @@ def launch_analysis():
     if (path_adicionales) and (path_adicionales!=''):
         df_adicionales=read_excel(path_adicionales)
         check_mandatory_cols(df_adicionales.columns,'Tablillas')
-        df_adicionales=df_adicionales.groupby('MODELO').sum('REQ')[['REQ']]
-        df_adicionales.reset_index(inplace=True)
+        df_adicionales=df_adicionales.groupby('MODELO', as_index=False)['REQ'].sum()
         df_adicionales.rename({"REQ":"Adicional","MODELO":"Name"},axis=1,inplace=True)
         if 'Omitir' in df_adicionales.columns:
             df_adicionales=df_adicionales[df_adicionales['Omitir'].isnull()]
@@ -1218,8 +1217,7 @@ def launch_analysis():
         if (path_adic_alloc) and (path_adic_alloc!=''):
             df_adic_alloc=read_excel(path_adic_alloc,sheet_name='Workorder Component Allocations')
             check_mandatory_cols(df_adic_alloc.columns,'Component Allocation')
-            df_adic_alloc=df_adic_alloc.groupby('Component').sum('Qty To be Issued')[['Qty To be Issued']]
-            df_adic_alloc.reset_index(inplace=True)
+            df_adic_alloc=df_adic_alloc.groupby('Component', as_index=False)['Qty To be Issued'].sum()
             df_adic_alloc.rename({"Component":"Name","Qty To be Issued":"Aloc Adicional"},axis=1,inplace=True)
             df_adicionales=df_adicionales.merge(df_adic_alloc,how='left',on='Name')
         df_adicionales=df_adicionales.merge(df_onhand,how='left',left_on='Name',right_on='Part')
@@ -1231,8 +1229,7 @@ def launch_analysis():
         df_rl_raw[['Adicional','On Hand Adicional','Aloc Adicional']]=["",0,0]
 
     #Agregar pendiente de recibo
-    pend_recibo=df_manifest.groupby(['Part No']).sum('Qty')
-    pend_recibo.reset_index(inplace=True)
+    pend_recibo=df_manifest.groupby(['Part No'], as_index=False)['Qty'].sum()
     pend_recibo.rename({'Part No':'Name','Qty':'pend, recibo'},axis=1,inplace=True)
     df_rl_raw=df_rl_raw.merge(pend_recibo,how='left',on='Name')
 
@@ -1798,8 +1795,7 @@ def launch_suggestion():
     check_mandatory_cols(df_arrivals.columns,'PO WO Info')
     df_arrivals=df_arrivals[mandatory_cols['PO WO Info']]
     if len(df_arrivals)>0:
-        df_arrivals=df_arrivals.groupby(['Part Name','Due']).sum('Quantity')[['Quantity']]
-        df_arrivals.reset_index(inplace=True)
+        df_arrivals=df_arrivals.groupby(['Part Name','Due'], as_index=False)['Quantity'].sum()
         # Fecha de cobertura
 
         df_arrivals.rename({'Part Name':'Component'},axis=1,inplace=True)
