@@ -1806,11 +1806,12 @@ def launch_suggestion():
         df_coverage['short']=-df_coverage['short']
         
 
-        def filter_first_exceeding(group):
-            mask = group['Cumulative Sum'] > group['short'].iloc[0]
-            return group[mask].head(1) 
-        df_coverage = df_coverage.groupby('Component').apply(filter_first_exceeding).reset_index(drop=True)
-        df_coverage=df_coverage[['Component','Due']]
+        df_coverage=df_coverage[df_coverage['Cumulative Sum'] > df_coverage['short']]
+        if len(df_coverage)>0:
+            df_coverage=df_coverage.sort_values(['Component','Due']).groupby('Component', as_index=False).first()
+            df_coverage=df_coverage[['Component','Due']]
+        else:
+            df_coverage=pd.DataFrame(columns=['Component','Due'])
         df_coverage.rename({'Due':'Cobertura'},axis=1, inplace=True)
         try:
             df_arrivals['Due']=df_arrivals['Due'].dt.date.astype(str)
