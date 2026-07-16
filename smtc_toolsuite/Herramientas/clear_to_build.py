@@ -200,6 +200,17 @@ def read_excel(path=None, sheet_name=0, header=0, keep_default_na=True, dtype=No
         df = pd.read_excel(path, sheet_name=sheet_name, header=header, keep_default_na=keep_default_na, dtype=dtype)
     return df
 
+def fill_missing_by_dtype(df, columns=None, text_value='', numeric_value=0):
+    target = df if columns is None else df.loc[:, columns]
+    numeric_cols = target.select_dtypes(include='number').columns
+    text_cols = target.select_dtypes(include=['object', 'string', 'category']).columns
+
+    if len(numeric_cols) > 0:
+        df.loc[:, numeric_cols] = target.loc[:, numeric_cols].fillna(numeric_value)
+    for col in text_cols:
+        df[col] = target[col].astype(object).fillna(text_value)
+    return df
+
 def load_excel_with_header_key(file_path, sheet_name=0, key_text='', dtype=None, **kwargs):
     df = read_excel(file_path, sheet_name=sheet_name, keep_default_na=False, dtype=dtype)
     header_row = None
@@ -1140,12 +1151,12 @@ def launch_analysis():
     df_rl_raw=pd.concat([df_d,df_r])
     show_component_analysis("df_rl_raw consumo Demand/SchdRcpt", df_rl_raw, component_col="Name")
 
-    df_rl_raw[general_cols]=df_rl_raw[general_cols].fillna('')
-    df_rl[general_cols]=df_rl[general_cols].fillna('')
+    fill_missing_by_dtype(df_rl_raw, general_cols)
+    fill_missing_by_dtype(df_rl, general_cols)
     rl_raw_path=os.path.join(st.session_state.folder_output,'rl_raw.xlsx')
     save_df(df=df_rl_raw,filepath=rl_raw_path,sheet_name='RL',index=False)
 
-    df_rl_raw.fillna('',inplace=True)
+    fill_missing_by_dtype(df_rl_raw)
 
     ### 3.3 On hand Detail   
     if is_file_open(path_ctb):
@@ -1176,7 +1187,7 @@ def launch_analysis():
         st.stop()
 
     df_rl_raw=read_excel(rl_raw_path)
-    df_rl_raw.fillna('',inplace=True)
+    fill_missing_by_dtype(df_rl_raw)
 
     df_alloc=df_rl_raw.drop_duplicates(['Name'])[['Name','Allocation']]
     df_alloc.rename({'Name':'Alterno','Allocation':'Aloc Aterno'},axis=1,inplace=True)
@@ -1242,7 +1253,7 @@ def launch_analysis():
     else:
         df_rl_raw['Primary Stock']=''
 
-    df_rl_raw.fillna('',inplace=True)
+    fill_missing_by_dtype(df_rl_raw)
     df_ctb = pd.pivot_table(df_rl_raw, 
                         values=['qty'],  
                         index=ctb_cols+formula_cols+['Alterno','ON hand','Primary Stock','Aloc Aterno','Adicional','On Hand Adicional','Aloc Adicional','pend, recibo'],         
@@ -1876,9 +1887,8 @@ def gating_parts():
     df_shorts=dict_launch['Cortos-Detalle']
 
     df_launch_ready=df_launch[df_launch['Estatus']=='Listo']
-    # Si la decision es no tomar en cuenta cortos criticos, cambiar por igual a Corto
-    df_launch_short=df_launch[(df_launch['Estatus']=='Cortos')]
-    df_launch_short=df_launch_short.merge(df_shorts,how='left',on=['PO','MODELO'])
+    df_launch_status=df_launch[['PO','MODELO','REQ','Estatus']]
+    df_launch_short=df_shorts.merge(df_launch_status,how='left',on=['PO','MODELO'])
     df_launch_short=df_launch_short[['PO','MODELO','Component','REQ','short','Estatus']]
     df_launch_short['Cumulative Sum']=-df_launch_short.groupby('Component')['short'].cumsum()
     df_launch_short['Cumulative Sum']=df_launch_short['Cumulative Sum'].astype(int)
