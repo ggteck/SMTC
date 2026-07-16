@@ -1791,7 +1791,17 @@ def launch_suggestion():
     # Agregar llegada de material
     path_arrivals=st.session_state.selected_paths['po_wo_info']
     if (path_arrivals) and (path_arrivals!=''):
-        df_arrivals=pd.read_excel(path_arrivals,sheet_name="POWO Info Update",header=1)
+        if os.path.basename(path_arrivals).startswith('~$'):
+            msg_launch_suggestion.error(f"El archivo seleccionado parece ser un archivo temporal de Excel: {path_arrivals}")
+            st.stop()
+        if is_file_open(path_arrivals):
+            msg_launch_suggestion.error(f"Favor de cerrar el archivo: {path_arrivals}")
+            st.stop()
+        try:
+            df_arrivals=pd.read_excel(path_arrivals,sheet_name="POWO Info Update",header=1)
+        except PermissionError:
+            msg_launch_suggestion.error(f"No se pudo leer el archivo por permisos. Favor de cerrar Excel/OneDrive o revisar permisos: {path_arrivals}")
+            st.stop()
     else:
         df_arrivals=pd.DataFrame(columns=mandatory_cols['PO WO Info'])
     check_mandatory_cols(df_arrivals.columns,'PO WO Info')
@@ -1828,9 +1838,11 @@ def launch_suggestion():
         pivot_arrivals.columns=[col[1] for col in pivot_arrivals.columns.values]
         pivot_arrivals.reset_index(inplace=True)
         df_short_resume=df_short_resume.merge(df_coverage,how='left',on='Component')
-        df_short_resume['Cobertura'].fillna('No disponible',inplace=True)
+        df_short_resume['Cobertura']=df_short_resume['Cobertura'].astype(object).fillna('No disponible')
         df_short_resume['Qty']=''
-        df_short_resume=df_short_resume.merge(pivot_arrivals,how='left',on=['Component']).fillna(0)
+        df_short_resume=df_short_resume.merge(pivot_arrivals,how='left',on=['Component'])
+        arrival_cols=[col for col in pivot_arrivals.columns if col != 'Component']
+        df_short_resume[arrival_cols]=df_short_resume[arrival_cols].fillna(0)
         df_short_resume['Cobertura'] = df_short_resume['Cobertura'].astype(str).str.replace(' 00:00:00', '')
     df_demand_launch['Llave']=df_demand_launch['MODELO']+df_demand_launch['PO']
     col = df_demand_launch.pop('Llave')
