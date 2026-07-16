@@ -1779,7 +1779,9 @@ def launch_suggestion():
     df_demand_launch=df_demand_launch.merge(df_indexes,how='left',on=['PO','MODELO'])
     df_short_detail.drop('index',axis=1,inplace=True)
     idx=~df_demand_launch['index'].isnull()
-    df_demand_launch.loc[idx,'index']="=HYPERLINK(\"#'Cortos-Detalle'!A"+(df_demand_launch.loc[idx,'index']+2).astype(int).astype(str)+"\",'Cortos-Detalle'!E"+(df_demand_launch.loc[idx,'index']+2).astype(int).astype(str)+")"
+    link_rows=(df_demand_launch.loc[idx,'index']+2).astype(int).astype(str)
+    df_demand_launch['index']=df_demand_launch['index'].astype(object)
+    df_demand_launch.loc[idx,'index']="=HYPERLINK(\"#'Cortos-Detalle'!A"+link_rows+"\",'Cortos-Detalle'!E"+link_rows+")"
     if 'Cortos(link)' in df_demand_launch.columns:
         df_demand_launch['Cortos(link)']=df_demand_launch['index']
         df_demand_launch.drop(['index'],axis=1,inplace=True)
