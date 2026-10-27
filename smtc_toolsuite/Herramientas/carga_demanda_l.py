@@ -343,6 +343,7 @@ def generate_demand():
         st.stop()
     df_pos['Quantity'] = quantities.astype(float)
     df_pos['ProductServiceID']=df_pos['ProductServiceID'].str.upper()
+    df_pos = df_pos[~df_pos['ProductServiceID'].str.contains('-', regex=False, na=False)]
 
     df_pos_bom=df_pos.groupby(['ProductServiceID'])['Quantity'].sum()
     df_pos_bom.reset_index(inplace=True)
