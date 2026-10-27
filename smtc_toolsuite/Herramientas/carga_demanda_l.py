@@ -456,7 +456,9 @@ def generate_demand():
 
     pivot_forecast.columns=pivot_forecast.columns.droplevel(0)
 
-    pivot_forecast.columns.values[0:3] = ['Type', 'Part Number', 'Description']
+    forecast_columns = list(pivot_forecast.columns)
+    forecast_columns[0:3] = ['Type', 'Part Number', 'Description']
+    pivot_forecast.columns = forecast_columns
 
     #Ordenar columnas deacuerdo al mes
     df_pos_bom_cols=df_pos_bom[['year_month','head_date']].drop_duplicates()
