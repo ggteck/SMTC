@@ -326,11 +326,25 @@ def generate_demand():
 
     df_korrus=df_pos.copy()
     df_pos=df_pos[mandatory_cols['KorrusFile']]
-    df_pos = df_pos[pd.to_numeric(df_pos['Quantity'], errors='coerce').notnull()]
-    df_pos['Quantity']=df_pos['Quantity'].astype(float)
+    quantities = pd.to_numeric(df_pos['Quantity'], errors='coerce')
+    invalid_quantities = df_pos.loc[quantities.isna(), 'Quantity']
+    if not invalid_quantities.empty:
+        examples = ', '.join(
+            f"{row + 2} ({value!r})"
+            for row, value in invalid_quantities.head(10).items()
+        )
+        remaining = len(invalid_quantities) - 10
+        if remaining:
+            examples += f", y {remaining} fila(s) más"
+        st.error(
+            f"El archivo KorrusFile '{path_pos}' tiene valores inválidos en "
+            f"la columna Quantity. Fila(s): {examples}."
+        )
+        st.stop()
+    df_pos['Quantity'] = quantities.astype(float)
     df_pos['ProductServiceID']=df_pos['ProductServiceID'].str.upper()
 
-    df_pos_bom=df_pos.groupby(['ProductServiceID']).sum('Quantity')
+    df_pos_bom=df_pos.groupby(['ProductServiceID'])['Quantity'].sum()
     df_pos_bom.reset_index(inplace=True)
 
     # Cambiar por selector si es necesario
@@ -370,7 +384,7 @@ def generate_demand():
 
     df_pos_bom['Extended']=df_pos_bom['Qty Per']*df_pos_bom['Quantity']
 
-    df_pos_bom=df_pos_bom.groupby(['extract_date','year_month','head_date','Component']).sum('Extended')
+    df_pos_bom=df_pos_bom.groupby(['extract_date','year_month','head_date','Component'])['Extended'].sum()
     df_pos_bom.reset_index(inplace=True)
     df_pos_bom=df_pos_bom[['extract_date','year_month','head_date','Component','Extended']]
     df_pos_bom.rename({'Component':'Part Number'},inplace=True,axis=1)
