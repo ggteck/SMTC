@@ -326,6 +326,7 @@ def generate_demand():
 
     df_korrus=df_pos.copy()
     df_pos=df_pos[mandatory_cols['KorrusFile']]
+    df_pos = df_pos[~df_pos['Quantity'].astype(str).str.contains('-', regex=False)]
     quantities = pd.to_numeric(df_pos['Quantity'], errors='coerce')
     invalid_quantities = df_pos.loc[quantities.isna(), 'Quantity']
     if not invalid_quantities.empty:
@@ -343,7 +344,6 @@ def generate_demand():
         st.stop()
     df_pos['Quantity'] = quantities.astype(float)
     df_pos['ProductServiceID']=df_pos['ProductServiceID'].str.upper()
-    df_pos = df_pos[~df_pos['ProductServiceID'].str.contains('-', regex=False, na=False)]
 
     df_pos_bom=df_pos.groupby(['ProductServiceID'])['Quantity'].sum()
     df_pos_bom.reset_index(inplace=True)
