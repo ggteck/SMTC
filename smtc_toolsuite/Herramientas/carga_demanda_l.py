@@ -346,7 +346,7 @@ def generate_demand():
     df_pos['ProductServiceID']=df_pos['ProductServiceID'].str.upper()
 
     df_pos_bom=df_pos.groupby(['ProductServiceID'])['Quantity'].sum()
-    df_pos_bom.reset_index(inplace=True)
+    df_pos_bom=df_pos_bom.reset_index()
 
     # Cambiar por selector si es necesario
     df_pos_bom['extract_date']=pd.to_datetime(state['korrus_date']).strftime('%Y-%m-%d')
@@ -386,7 +386,7 @@ def generate_demand():
     df_pos_bom['Extended']=df_pos_bom['Qty Per']*df_pos_bom['Quantity']
 
     df_pos_bom=df_pos_bom.groupby(['extract_date','year_month','head_date','Component'])['Extended'].sum()
-    df_pos_bom.reset_index(inplace=True)
+    df_pos_bom=df_pos_bom.reset_index()
     df_pos_bom=df_pos_bom[['extract_date','year_month','head_date','Component','Extended']]
     df_pos_bom.rename({'Component':'Part Number'},inplace=True,axis=1)
     #Se guarda el archivo sin cambios y sin consolidar para descontar luego del write forecast
