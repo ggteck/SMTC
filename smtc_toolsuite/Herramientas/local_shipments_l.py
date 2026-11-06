@@ -467,6 +467,11 @@ def move_columns_to_front(df, columns):
     remaining_columns = [col for col in df.columns if col not in columns]
     return df[columns + remaining_columns]
 
+def normalize_assigned_drop_zone(values):
+    """Use one key value for missing, blank, and literal NULL drop zones."""
+    values = values.astype('string').fillna('').str.strip()
+    return values.mask(values.eq('') | values.str.upper().eq('NULL'), 'NULL')
+
 def append_df_to_df(df_new=pd.DataFrame(),df_old=pd.DataFrame(),table='',keys=[],date_cols=[]):
     """
     Appends a dataframe to an existing Dataframe
@@ -1265,6 +1270,7 @@ def update_edi():
     ws_dict_edi=get_worksheet_df(ws_edi,key_text='PO',data_only=True)
     df_edi=ws_dict_edi['df']
     df_edi['ProductService ID']=df_edi['ProductService ID'].str.upper()
+    df_edi['AssignedDropZone']=normalize_assigned_drop_zone(df_edi['AssignedDropZone'])
     df_edi['Quantity']=df_edi['Quantity'].astype(float)
     ws_ship_elp=wb_elp['Shipment to ELP']
     ws_dict_ship_elp=get_worksheet_df(ws_ship_elp,key_text='CUU ship Date',data_only=True)
@@ -1287,7 +1293,7 @@ def update_edi():
         df_korrus_data_new['LineNumber'] = pd.to_numeric(df_korrus_data_new['LineNumber'], errors='coerce').fillna(0).astype(float).astype(int)
         df_korrus_data_new['Quantity'] = pd.to_numeric(df_korrus_data_new['Quantity'], errors='coerce').fillna(0).astype(float).astype(int)
         df_korrus_data_new['price'] = pd.to_numeric(df_korrus_data_new['price'], errors='coerce').fillna(0).astype(float)
-        df_korrus_data_new['AssignedDropZone'].fillna('NULL',inplace=True) 
+        df_korrus_data_new['AssignedDropZone']=normalize_assigned_drop_zone(df_korrus_data_new['AssignedDropZone'])
         df_korrus_data_new['ProductServiceID']=df_korrus_data_new['ProductServiceID'].str.upper()
 
         key_korrus=['PurchaseOrder','LineNumber','PODate','ProductServiceID','AssignedDropZone']
@@ -1609,8 +1615,7 @@ def update_oor():
     # Calculo de valores por columna
     check_duplicated_columns(df_oor)
     df_oor=format_dates(df_oor,['START DATE','FINISH DATE','SHIP DATE','EDI Received','POUS Date','Actual Ship date to Customer\n','Actual Move date from CUU'],type='')
-    df_oor.loc[df_oor['AssignedDropZone']=='','AssignedDropZone']='NULL'
-    df_oor['AssignedDropZone'].fillna('NULL',inplace=True)
+    df_oor['AssignedDropZone']=normalize_assigned_drop_zone(df_oor['AssignedDropZone'])
     df_oor['NP+PO+DZ']=df_oor['ProductServiceID']+df_oor['PurchaseOrder']+df_oor['AssignedDropZone'].astype(str)
     df_oor['CONCAT\nPN+PO']=df_oor['ProductServiceID']+df_oor['PurchaseOrder']
 
@@ -1634,6 +1639,7 @@ def update_oor():
     df_oor_old=dict_oor_old['df']
     df_oor_old['ProductServiceID']=df_oor_old['ProductServiceID'].str.upper()
     check_mandatory_cols(df_oor_old.columns,'OOR')
+    df_oor_old['AssignedDropZone']=normalize_assigned_drop_zone(df_oor_old['AssignedDropZone'])
     # Part of the OOR that will be updated, we will remove duplicates from this part
     key_cols=['PurchaseOrder','ProductServiceID','LineNumber','AssignedDropZone']
     df_edi_rec_dates=df_oor_old[key_cols+['EDI Received']].drop_duplicates(key_cols).copy()
@@ -2760,6 +2766,8 @@ st.title("Seguimiento a Embarques")
 path_pickle=os.path.join(Path(__file__).parent,'folder_state_local_shipments.pkl')
 # Load state and update if needed
 state = load_state_pickle(path_pickle)
+if not os.path.exists(path_pickle):
+    st.warning(f'No se encontró el estado guardado en: {path_pickle}. Seleccione de nuevo la carpeta de trabajo y los archivos necesarios.')
 
 
 # Selección de carpeta de salidas
