@@ -2595,77 +2595,125 @@ def explorar_outlook():
                     continue
     st.success(f"Exploración completada. {count} attachments guardados.")
     
-    # Crear la lista de archivos descargados para manejar su integración.
+    integrar_korrus_attachments()
+
+
+def integrar_korrus_attachments():
+    """Integrate files already on disk, including files left by an earlier run."""
+    os.makedirs(output_paths['path_attachments'], exist_ok=True)
     if not os.path.exists(output_paths['path_attachments_done']):
         os.makedirs(output_paths['path_attachments_done'])
-    
-    # Status maneja el proceso a realizar en los archivos: r=reprocesar, d=done, e=error
+
     if os.path.exists(output_paths['path_korrus_list']):
         df_korrus_list = pd.read_excel(output_paths['path_korrus_list'])
     else:
         df_korrus_list = pd.DataFrame(columns=['file_name', 'received_time', 'status'])
     close_xl_if_open(output_paths['path_korrus_list'])
-    
-    files = os.listdir(output_paths['path_attachments'])
-    df_korrus_list_new = pd.DataFrame(columns=['file_name'], data=files)
-    df_korrus_list_new['received_time'] = df_korrus_list_new['file_name'].str.extract(r'(\d{4}-\d{2}-\d{2}-\d{6})')
-    df_korrus_list_new = df_korrus_list_new.merge(df_korrus_list, how='outer', on=['file_name', 'received_time'])
-    df_korrus_list_new.dropna(subset=['received_time'], inplace=True)
-    df_korrus_list_new['status'].fillna('', inplace=True)
-    
-    # Analizar archivos adjuntos
-    df_korrus_data_new = pd.DataFrame(columns=['origin_file'] + mandatory_cols['Korrus'])
-    for index, row in df_korrus_list_new[df_korrus_list_new['status'].isin(['', 'r'])].iterrows():
-        filepath = os.path.join(output_paths['path_attachments'], row['file_name'])
-        if (row['status'] == 'r') or (not os.path.exists(filepath)):
-            filepath = os.path.join(output_paths['path_attachments_done'], row['file_name'])
-        if not os.path.exists(filepath):
-            df_korrus_list_new.loc[index, 'status'] = 'e'
-            st.info(f"El archivo {row['file_name']} no existe")
-            continue
-        ext = os.path.splitext(os.path.basename(filepath))[1].lower()
-        if ext == ".xlsx":
-            df = read_excel(filepath)
-        elif ext == ".csv":
-            try:
-                df = pd.read_csv(filepath, sep='\t', encoding='utf-16')
-            except:
-                df = pd.read_csv(filepath, sep=',')
-        else:
-            df_korrus_list_new.loc[index, 'status'] = 'e'
-            st.info(f"El archivo {row['file_name']} no pudo ser procesado")
-            continue
-        if check_mandatory_cols(df.columns, selector_name='Korrus', raise_error=False):
-            df['origin_file'] = row['file_name']
-            df_korrus_data_new = pd.concat([df_korrus_data_new, df])
-            df_korrus_data_new = df_korrus_data_new[['origin_file'] + mandatory_cols['Korrus']]
-            df_korrus_list_new.loc[index, 'status'] = 'n'
-        else:
-            df_korrus_list_new.loc[index, 'status'] = 'e'
-    
-    # Consolidar datos en un solo archivo
+
     if os.path.exists(output_paths['path_korrus_data']):
         df_korrus_data = pd.read_excel(output_paths['path_korrus_data'])
     else:
         df_korrus_data = pd.DataFrame(columns=['origin_file'] + mandatory_cols['Korrus'])
     close_xl_if_open(output_paths['path_korrus_data'])
-    df_korrus_data = df_korrus_data[~df_korrus_data['origin_file'].isin(df_korrus_data_new['origin_file'])]
-    df_korrus_data_new = pd.concat([df_korrus_data, df_korrus_data_new])
-    # Mover archivos a la carpeta de archivos procesados
-    for index,row in df_korrus_list_new[df_korrus_list_new['status']=='n'].iterrows():
-        df_korrus_list_new.loc[index,'status']='y'
-        if os.path.exists(f'{output_paths['path_attachments']}/{row["file_name"]}'):
-            shutil.move(f'{output_paths['path_attachments']}/{row["file_name"]}', f'{output_paths['path_attachments_done']}/{row["file_name"]}')
-    # Eliminar archivos ya procesados del folder de llegada
-    df_remove=df_korrus_list_new[(df_korrus_list_new['status']=='y') & (df_korrus_list_new['file_name'].isin(files))]
-    for index,row in df_remove.iterrows():
-        if os.path.exists(os.path.join(output_paths['path_attachments'],row['file_name'])):
-            os.remove(os.path.join(output_paths['path_attachments'],row['file_name']))
-    files=os.listdir(output_paths['path_attachments'])
-    # Guardar datos y lista de archivos procesados
-    save_df(df_korrus_list_new,filepath=output_paths['path_korrus_list'],sheet_name='Korrus List',index=False)
-    save_df(df_korrus_data_new,filepath=output_paths['path_korrus_data'],sheet_name='Korrus Data',index=False)
-    st.success("Proceso de integración completado.")
+
+    # Keep the old status for manually requested reprocessing, but use data presence
+    # as the source of truth for whether a file actually reached Korrus_data.xlsx.
+    df_korrus_list = df_korrus_list.drop_duplicates('file_name', keep='last').set_index('file_name', drop=False)
+    locations = {}
+    for folder in (output_paths['path_attachments_done'], output_paths['path_attachments']):
+        for name in os.listdir(folder):
+            path = os.path.join(folder, name)
+            if os.path.isfile(path) and not name.startswith('~$'):
+                locations[name] = path
+    report = []
+    processed = []
+    loaded_names = set(df_korrus_data['origin_file'].dropna())
+    for name, path in sorted(locations.items()):
+        folder_name = 'attachments' if os.path.dirname(path) == output_paths['path_attachments'] else 'Done'
+        if name not in df_korrus_list.index:
+            received = pd.Series([name]).str.extract(r'(\d{4}-\d{2}-\d{2}-\d{6})').iloc[0, 0]
+            df_korrus_list.loc[name, ['file_name', 'received_time', 'status']] = [name, received, '']
+        old_status = df_korrus_list.at[name, 'status']
+        already_loaded = name in loaded_names
+        if already_loaded and old_status != 'r':
+            df_korrus_list.at[name, 'status'] = 'y'
+            if folder_name == 'attachments':
+                try:
+                    os.replace(path, os.path.join(output_paths['path_attachments_done'], name))
+                    result = 'Ya estaba en Korrus_data.xlsx; movido a Done'
+                except OSError as exc:
+                    result = f'Ya estaba en Korrus_data.xlsx; no se pudo mover a Done: {exc}'
+            else:
+                result = 'Ya estaba en Korrus_data.xlsx y en Done'
+            report.append({'Archivo': name, 'Carpeta': folder_name, 'Resultado': result})
+            continue
+        ext = os.path.splitext(name)[1].lower()
+        try:
+            if ext == '.xlsx':
+                df = read_excel(path)
+            elif ext == '.csv':
+                df = None
+                for encoding, separator in [('utf-16', '\t'), ('utf-16', ','),
+                                            ('utf-8-sig', ','), ('utf-8-sig', '\t')]:
+                    try:
+                        candidate = pd.read_csv(path, sep=separator, encoding=encoding)
+                    except (UnicodeError, ValueError, pd.errors.ParserError):
+                        continue
+                    df = candidate
+                    if set(mandatory_cols['Korrus']).issubset(df.columns):
+                        break
+                if df is None:
+                    raise ValueError('No se pudo leer el CSV como UTF-16 o UTF-8')
+            else:
+                raise ValueError(f'Formato no compatible: {ext or "sin extensión"}')
+            missing = [col for col in mandatory_cols['Korrus'] if col not in df.columns]
+            if missing:
+                raise ValueError(f'Faltan columnas: {", ".join(missing)}')
+            if df.empty:
+                raise ValueError('El archivo no contiene filas')
+            df = df[mandatory_cols['Korrus']].copy()
+            df.insert(0, 'origin_file', name)
+            df_korrus_data = pd.concat([
+                df_korrus_data[df_korrus_data['origin_file'] != name], df
+            ], ignore_index=True)
+            processed.append((name, path, len(df), old_status, len(report)))
+            report.append({'Archivo': name, 'Carpeta': folder_name,
+                           'Resultado': f'Leído: {len(df)} filas; pendiente de guardar'})
+        except Exception as exc:
+            df_korrus_list.at[name, 'status'] = 'e'
+            report.append({'Archivo': name, 'Carpeta': folder_name,
+                           'Resultado': f'No procesado: {exc}'})
+
+    # Persist the workbook before moving sources or declaring them processed.
+    saved_count = 0
+    if processed:
+        try:
+            save_df(df_korrus_data, filepath=output_paths['path_korrus_data'], sheet_name='Korrus Data', index=False)
+        except Exception as exc:
+            for name, _, _, old_status, report_index in processed:
+                df_korrus_list.at[name, 'status'] = old_status
+                report[report_index]['Resultado'] = f'No procesado: no se pudo guardar Korrus_data.xlsx: {exc}'
+        else:
+            for name, path, row_count, _, report_index in processed:
+                saved_count += 1
+                df_korrus_list.at[name, 'status'] = 'y'
+                result = f'Guardado en Korrus_data.xlsx: {row_count} filas'
+                if os.path.dirname(path) == output_paths['path_attachments']:
+                    try:
+                        os.replace(path, os.path.join(output_paths['path_attachments_done'], name))
+                        result += '; movido a Done'
+                    except OSError as exc:
+                        result += f'; no se pudo mover a Done: {exc}'
+                else:
+                    result += '; ya estaba en Done'
+                report[report_index]['Resultado'] = result
+    try:
+        save_df(df_korrus_list.reset_index(drop=True), filepath=output_paths['path_korrus_list'], sheet_name='Korrus List', index=False)
+    except Exception as exc:
+        st.error(f'No se pudo guardar Korrus_list.xlsx: {exc}')
+    st.write('Archivos encontrados y resultado de integración:')
+    st.dataframe(pd.DataFrame(report, columns=['Archivo', 'Carpeta', 'Resultado']), hide_index=True)
+    st.success(f'Integración completada: {saved_count} archivos guardados en Korrus_data.xlsx.')
 
 # ----------------------------------------------------------------
 # Function: Cargar lista de precios para usar en OOR
@@ -2795,6 +2843,11 @@ with col1:
     if st.button("Explorar Outlook", key="explorar_outlook"):
         explorar_outlook()
         st.session_state.explorar_msg = "Exploración completada."
+    if st.button("Procesar archivos en attachments", key="process_attachments"):
+        if state.get('folder_output'):
+            integrar_korrus_attachments()
+        else:
+            st.error('Seleccione primero la carpeta de trabajo.')
 with col2:
     fecha_mail_input = st.date_input("Fecha mail", value=state.get("fecha_mail") or (date.today() - timedelta(days=1)))
     if fecha_mail_input != state.get("fecha_mail"):
