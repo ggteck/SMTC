@@ -2618,21 +2618,32 @@ def integrar_korrus_attachments():
         df_korrus_list = pd.DataFrame(columns=['file_name', 'received_time', 'status'])
     close_xl_if_open(output_paths['path_korrus_list'])
 
+    # A 'y' status means the file is done; 'r' explicitly requests reprocessing.
+    # Also skip files already present in Korrus_data.xlsx when not marked 'r'.
+    df_korrus_list = df_korrus_list.drop_duplicates('file_name', keep='last').set_index('file_name', drop=False)
+    completed_names = set(df_korrus_list.loc[
+        df_korrus_list['status'].astype(str).str.strip().str.lower().eq('y'), 'file_name'
+    ])
+    locations = {}
+    for folder in (output_paths['path_attachments_done'], output_paths['path_attachments']):
+        for name in os.listdir(folder):
+            if name in completed_names:
+                continue
+            path = os.path.join(folder, name)
+            if os.path.isfile(path) and not name.startswith('~$'):
+                locations[name] = path
+    if not locations:
+        progress_message.empty()
+        st.info('No hay archivos de Korrus pendientes de revisar.')
+        return
+
+    progress_message.info('Cargando Korrus_data.xlsx...')
     if os.path.exists(output_paths['path_korrus_data']):
         df_korrus_data = pd.read_excel(output_paths['path_korrus_data'])
     else:
         df_korrus_data = pd.DataFrame(columns=['origin_file'] + mandatory_cols['Korrus'])
     close_xl_if_open(output_paths['path_korrus_data'])
 
-    # A 'y' status means the file is done; 'r' explicitly requests reprocessing.
-    # Also skip files already present in Korrus_data.xlsx when not marked 'r'.
-    df_korrus_list = df_korrus_list.drop_duplicates('file_name', keep='last').set_index('file_name', drop=False)
-    locations = {}
-    for folder in (output_paths['path_attachments_done'], output_paths['path_attachments']):
-        for name in os.listdir(folder):
-            path = os.path.join(folder, name)
-            if os.path.isfile(path) and not name.startswith('~$'):
-                locations[name] = path
     report = []
     processed = []
     loaded_names = set(df_korrus_data['origin_file'].dropna())
@@ -2646,17 +2657,16 @@ def integrar_korrus_attachments():
         old_status = df_korrus_list.at[name, 'status']
         status = str(old_status).strip().lower()
         already_loaded = name in loaded_names
-        if status == 'y' or (already_loaded and status != 'r'):
+        if already_loaded and status != 'r':
             df_korrus_list.at[name, 'status'] = 'y'
-            skip_reason = 'Marcado como procesado (y)' if status == 'y' else 'Ya estaba en Korrus_data.xlsx'
             if folder_name == 'attachments':
                 try:
                     os.replace(path, os.path.join(output_paths['path_attachments_done'], name))
-                    result = f'{skip_reason}; movido a Done'
+                    result = 'Ya estaba en Korrus_data.xlsx; movido a Done'
                 except OSError as exc:
-                    result = f'{skip_reason}; no se pudo mover a Done: {exc}'
+                    result = f'Ya estaba en Korrus_data.xlsx; no se pudo mover a Done: {exc}'
             else:
-                result = f'{skip_reason}; ya estaba en Done'
+                result = 'Ya estaba en Korrus_data.xlsx y en Done'
             report.append({'Archivo': name, 'Carpeta': folder_name, 'Resultado': result})
             continue
         ext = os.path.splitext(name)[1].lower()
