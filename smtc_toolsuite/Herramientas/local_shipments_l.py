@@ -2606,6 +2606,8 @@ def explorar_outlook():
 
 def integrar_korrus_attachments():
     """Integrate files already on disk, including files left by an earlier run."""
+    progress_message = st.empty()
+    progress_message.info('Cargando archivos de integración de Korrus...')
     os.makedirs(output_paths['path_attachments'], exist_ok=True)
     if not os.path.exists(output_paths['path_attachments_done']):
         os.makedirs(output_paths['path_attachments_done'])
@@ -2634,7 +2636,9 @@ def integrar_korrus_attachments():
     report = []
     processed = []
     loaded_names = set(df_korrus_data['origin_file'].dropna())
-    for name, path in sorted(locations.items()):
+    total_files = len(locations)
+    for file_number, (name, path) in enumerate(sorted(locations.items()), start=1):
+        progress_message.info(f'Revisando archivo {file_number} de {total_files}: {name}')
         folder_name = 'attachments' if os.path.dirname(path) == output_paths['path_attachments'] else 'Done'
         if name not in df_korrus_list.index:
             received = pd.Series([name]).str.extract(r'(\d{4}-\d{2}-\d{2}-\d{6})').iloc[0, 0]
@@ -2693,6 +2697,7 @@ def integrar_korrus_attachments():
     # Persist the workbook before moving sources or declaring them processed.
     saved_count = 0
     if processed:
+        progress_message.info(f'Guardando {len(processed)} archivos en Korrus_data.xlsx...')
         try:
             save_df(df_korrus_data, filepath=output_paths['path_korrus_data'], sheet_name='Korrus Data', index=False)
         except Exception as exc:
@@ -2714,9 +2719,11 @@ def integrar_korrus_attachments():
                     result += '; ya estaba en Done'
                 report[report_index]['Resultado'] = result
     try:
+        progress_message.info('Guardando Korrus_list.xlsx...')
         save_df(df_korrus_list.reset_index(drop=True), filepath=output_paths['path_korrus_list'], sheet_name='Korrus List', index=False)
     except Exception as exc:
         st.error(f'No se pudo guardar Korrus_list.xlsx: {exc}')
+    progress_message.empty()
     st.write('Archivos encontrados y resultado de integración:')
     st.dataframe(pd.DataFrame(report, columns=['Archivo', 'Carpeta', 'Resultado']), hide_index=True)
     st.success(f'Integración completada: {saved_count} archivos guardados en Korrus_data.xlsx.')
