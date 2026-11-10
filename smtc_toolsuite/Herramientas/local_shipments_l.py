@@ -2624,8 +2624,8 @@ def integrar_korrus_attachments():
         df_korrus_data = pd.DataFrame(columns=['origin_file'] + mandatory_cols['Korrus'])
     close_xl_if_open(output_paths['path_korrus_data'])
 
-    # Keep the old status for manually requested reprocessing, but use data presence
-    # as the source of truth for whether a file actually reached Korrus_data.xlsx.
+    # A 'y' status means the file is done; 'r' explicitly requests reprocessing.
+    # Also skip files already present in Korrus_data.xlsx when not marked 'r'.
     df_korrus_list = df_korrus_list.drop_duplicates('file_name', keep='last').set_index('file_name', drop=False)
     locations = {}
     for folder in (output_paths['path_attachments_done'], output_paths['path_attachments']):
@@ -2644,17 +2644,19 @@ def integrar_korrus_attachments():
             received = pd.Series([name]).str.extract(r'(\d{4}-\d{2}-\d{2}-\d{6})').iloc[0, 0]
             df_korrus_list.loc[name, ['file_name', 'received_time', 'status']] = [name, received, '']
         old_status = df_korrus_list.at[name, 'status']
+        status = str(old_status).strip().lower()
         already_loaded = name in loaded_names
-        if already_loaded and old_status != 'r':
+        if status == 'y' or (already_loaded and status != 'r'):
             df_korrus_list.at[name, 'status'] = 'y'
+            skip_reason = 'Marcado como procesado (y)' if status == 'y' else 'Ya estaba en Korrus_data.xlsx'
             if folder_name == 'attachments':
                 try:
                     os.replace(path, os.path.join(output_paths['path_attachments_done'], name))
-                    result = 'Ya estaba en Korrus_data.xlsx; movido a Done'
+                    result = f'{skip_reason}; movido a Done'
                 except OSError as exc:
-                    result = f'Ya estaba en Korrus_data.xlsx; no se pudo mover a Done: {exc}'
+                    result = f'{skip_reason}; no se pudo mover a Done: {exc}'
             else:
-                result = 'Ya estaba en Korrus_data.xlsx y en Done'
+                result = f'{skip_reason}; ya estaba en Done'
             report.append({'Archivo': name, 'Carpeta': folder_name, 'Resultado': result})
             continue
         ext = os.path.splitext(name)[1].lower()
