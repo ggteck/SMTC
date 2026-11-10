@@ -1,5 +1,7 @@
 """
 # Seguimiento a embarques
+- V52. 2026-11-10
+    - Mejora en mensajes para carga de outlook
 - V51. 2025-11-23
     - Se agrega columna de cambios en EDI master
 - V50. 2025-08-04
@@ -2619,15 +2621,21 @@ def integrar_korrus_attachments():
     close_xl_if_open(output_paths['path_korrus_list'])
 
     # A 'y' status means the file is done; 'r' explicitly requests reprocessing.
-    # Also skip files already present in Korrus_data.xlsx when not marked 'r'.
+    # Files in Done are only candidates when they are marked 'r'.
     df_korrus_list = df_korrus_list.drop_duplicates('file_name', keep='last').set_index('file_name', drop=False)
+    statuses = df_korrus_list['status'].astype(str).str.strip().str.lower()
     completed_names = set(df_korrus_list.loc[
-        df_korrus_list['status'].astype(str).str.strip().str.lower().eq('y'), 'file_name'
+        statuses.eq('y'), 'file_name'
+    ])
+    reprocess_names = set(df_korrus_list.loc[
+        statuses.eq('r'), 'file_name'
     ])
     locations = {}
     for folder in (output_paths['path_attachments_done'], output_paths['path_attachments']):
         for name in os.listdir(folder):
-            if name in completed_names:
+            if name in completed_names or (
+                folder == output_paths['path_attachments_done'] and name not in reprocess_names
+            ):
                 continue
             path = os.path.join(folder, name)
             if os.path.isfile(path) and not name.startswith('~$'):
@@ -2780,7 +2788,7 @@ try:
     st.set_page_config(page_title="Seguimiento a Embarques", page_icon=":truck:")
 except StreamlitAPIException:
     pass
-st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V51. 2025-11-23</div>", unsafe_allow_html=True)
+st.markdown("<div style='position: absolute; top: 10px; left: 10px; font-size: 14px; color: gray;'>V52. 2026-11-10</div>", unsafe_allow_html=True)
 st.title("Seguimiento a Embarques")
 path_pickle=os.path.join(Path(__file__).parent,'folder_state_local_shipments.pkl')
 # Load state and update if needed
