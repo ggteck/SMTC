@@ -548,14 +548,34 @@ def check_duplicated_columns(df):
         st.error(f"Columnas duplicadas: {duplicated}")
         st.stop()
 
-def append_to_sheet(ws_dict, ws):
+def append_to_sheet(ws_dict, ws, source_file=None):
     """
     This will append the data that contains no value in the first _cell column
     It is important that the order of the header is preserved
     Data is appended at the end of the ws
     """
     df=ws_dict['df']
-    cell_cols = [col for col in df.columns if ((not col is None) and (col.endswith('_cell')))]
+    invalid_columns = [col for col in df.columns if not isinstance(col, str)]
+    if invalid_columns:
+        columns_detail = ', '.join(
+            f'{col!r} ({type(col).__name__})' for col in invalid_columns
+        )
+        invalid_headers = [
+            f'{header!r} en {info["coordinate"]}'
+            for header, info in ws_dict['header'].items()
+            if not isinstance(header, str)
+        ]
+        header_detail = ', '.join(invalid_headers) if invalid_headers else (
+            'Ninguno en la hoja original; revisar el renombrado de columnas.'
+        )
+        st.error(
+            f'Archivo: {source_file or "No especificado"}\n\n'
+            f'Hoja: {ws.title}\n\n'
+            f'Columnas con nombre inválido: {columns_detail}\n\n'
+            f'Encabezados originales con nombre inválido: {header_detail}'
+        )
+        st.stop()
+    cell_cols = [col for col in df.columns if col.endswith('_cell')]
     data_cols = list(ws_dict["header"].keys())
     df_to_append=df[df[cell_cols[0]].isnull()][data_cols]
     for i, r in enumerate(dataframe_to_rows(df_to_append, index=False, header=False)):
@@ -1387,12 +1407,12 @@ def update_edi():
     df_edi.loc[df_edi['status_cancelled']==True,'Order/Line cancelled?']='Cancelled'
     df_edi.drop(columns='status_cancelled',inplace=True) 
     ws_dict_edi['df']=df_edi
-    ws_edi=append_to_sheet(ws_dict_edi,ws_edi)
+    ws_edi=append_to_sheet(ws_dict_edi,ws_edi,source_file=path_ship_elp)
     ws_edi=update_column(ws_dict_edi,ws_edi,column='Order/Line cancelled?')
     ws_edi=update_column(ws_dict_edi,ws_edi,column='EDI Received')
     ws_edi=update_column(ws_dict_edi,ws_edi,column='Changes')
     ws_dict_ship_elp['df']=df_ship_elp
-    ws_ship_elp=append_to_sheet(ws_dict_ship_elp,ws_ship_elp)
+    ws_ship_elp=append_to_sheet(ws_dict_ship_elp,ws_ship_elp,source_file=path_ship_elp)
     date_cols=df_columns[(df_columns['sheet']=='EDI Master')&(df_columns['data_type']=='date')]['column_name'].to_list()
     wb_elp=format_xl_dates(wb_elp,sheet_name='EDI Master',date_columns=date_cols)
     date_cols=df_columns[(df_columns['sheet']=='Shipment to ELP')&(df_columns['data_type']=='date')]['column_name'].to_list()
