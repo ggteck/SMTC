@@ -586,12 +586,13 @@ def update_column(ws_dict,ws,column=None):
     """
     Updates a column of the worksheet with the values on the dataframe
     """
-    df=ws_dict['df'].copy()
     if not column:
         return ws
-    df.dropna(subset=[f'{column}_cell'],inplace=True)
-    for index,row in df[[column,f'{column}_cell']].iterrows():
-        ws[row[f'{column}_cell']].value=row[column]
+    df=ws_dict['df']
+    cell_column=f'{column}_cell'
+    rows=df.loc[df[cell_column].notna(), [column, cell_column]]
+    for value, coordinate in rows.itertuples(index=False, name=None):
+        ws[coordinate].value=value
     return ws
 
 def save_df(df, filepath, sheet_name='Sheet', index=False):
@@ -660,7 +661,7 @@ def find_cell_by_text(ws, text):
 
 def read_excel(path=None,sheet_name=0,header=0,keep_default_na=True,dtype=None):
     with pd.ExcelFile(path) as xls:
-        df=pd.read_excel(path,sheet_name=sheet_name,header=header,keep_default_na=keep_default_na,dtype=dtype)
+        df=pd.read_excel(xls,sheet_name=sheet_name,header=header,keep_default_na=keep_default_na,dtype=dtype)
     return df
 
 def close_xl_if_open(path):
@@ -933,10 +934,29 @@ def format_xl_dates(wb,sheet_name='',date_columns=[]):
     """
     Set format to a date column in an excel worksheet
     """
+    if not date_columns:
+        return wb
     ws=wb[sheet_name]
+    remaining=set(date_columns)
+    header_cells={}
+    for row in ws.iter_rows():
+        for cell in row:
+            if cell.value in remaining:
+                header_cells[cell.value]=cell
+                remaining.remove(cell.value)
+        if not remaining:
+            break
+    if remaining:
+        st.error(f"Column '{next(iter(remaining))}' not found in the sheet.")
+        st.stop()
     for col in date_columns:
-        col_info=get_column_info(ws,col)
-        for cell in col_info['data_range']:
+        header_cell=header_cells[col]
+        for (cell,) in ws.iter_rows(
+            min_row=header_cell.row + 1,
+            max_row=ws.max_row,
+            min_col=header_cell.column,
+            max_col=header_cell.column,
+        ):
             cell.number_format = 'mm/dd/yyyy'  
     return wb
 
