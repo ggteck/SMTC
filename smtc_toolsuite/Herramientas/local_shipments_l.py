@@ -590,6 +590,21 @@ def update_column(ws_dict,ws,column=None):
         return ws
     df=ws_dict['df']
     cell_column=f'{column}_cell'
+    if cell_column not in df.columns:
+        # The column was added after the worksheet was read, so it has no
+        # stored cell coordinates. Existing rows stay in worksheet order and
+        # new rows have already been appended by append_to_sheet().
+        header_info=ws_dict['header']
+        if column in header_info:
+            header_cell=ws[header_info[column]['coordinate']]
+        else:
+            first_header=next(iter(header_info.values()))
+            _, header_row=coordinate_from_string(first_header['coordinate'])
+            header_cell=ws.cell(row=header_row, column=ws.max_column + 1)
+            header_cell.value=column
+        for row_number, value in enumerate(df[column], start=header_cell.row + 1):
+            ws.cell(row=row_number, column=header_cell.column).value=value
+        return ws
     rows=df.loc[df[cell_column].notna(), [column, cell_column]]
     for value, coordinate in rows.itertuples(index=False, name=None):
         ws[coordinate].value=value
