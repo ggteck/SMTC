@@ -56,11 +56,11 @@ if st.button("Save attachments", type="primary"):
         st.error("Select an existing attachment destination folder and save preferences first.")
     else:
         try:
-            with st.spinner("Reading Outlook messages..."):
-                with outlook_namespace() as outlook:
-                    saved, skipped, errors = save_attachments(
-                        outlook, preferences["folders"], target, preferences["since"]
-                    )
+            st.write("Reading Outlook messages...")
+            with outlook_namespace() as outlook:
+                saved, skipped, errors = save_attachments(
+                    outlook, preferences["folders"], target, preferences["since"]
+                )
             st.success(f"Saved {saved} attachments to {target}. Skipped {skipped} already saved files.")
             for error in errors:
                 st.warning(error)

@@ -56,20 +56,53 @@ def save_attachments(namespace, folder_keys, destination, since):
     saved = skipped = 0
     errors = []
 
+    def report_error(message):
+        if len(errors) < 10:
+            errors.append(message)
+        elif len(errors) == 10:
+            errors.append("Additional Outlook errors were omitted from this page.")
+
     for key in folder_keys:
         try:
             store_id, entry_id = key.split("|", 1)
             folder = namespace.GetFolderFromID(entry_id, store_id)
             items = folder.Items
         except Exception as exc:
-            errors.append(f"Could not open a selected folder: {exc}")
+            report_error(f"Could not open a selected folder: {exc}")
             continue
 
-        for message in items:
+        # Sorting is handled by Outlook. For a large mailbox we can stop as soon
+        # as the first older message is reached instead of loading its history.
+        sorted_by_date = False
+        try:
+            items.Sort("[ReceivedTime]", True)
+            sorted_by_date = True
+        except (AttributeError, TypeError):
+            pass  # Also supports simple iterable mail collections in tests.
+        except Exception as exc:
+            report_error(f"Could not sort {folder.Name} by received date: {exc}")
+
+        try:
+            message_count = items.Count
+        except AttributeError:
+            messages = iter(items)
+        else:
+            def get_messages():
+                for index in range(1, message_count + 1):
+                    try:
+                        yield items.Item(index)
+                    except Exception as exc:
+                        report_error(f"Could not read message {index} in {folder.Name}: {exc}")
+
+            messages = get_messages()
+
+        for message in messages:
             try:
                 received = message.ReceivedTime
                 received = datetime.fromtimestamp(received.timestamp())
                 if received < cutoff:
+                    if sorted_by_date:
+                        break
                     continue
                 attachments = message.Attachments
                 message_id = message.EntryID
@@ -91,6 +124,6 @@ def save_attachments(namespace, folder_keys, destination, since):
                     attachment.SaveAsFile(str(target))
                     saved += 1
                 except Exception as exc:
-                    errors.append(f"Could not save an attachment in {folder.Name}: {exc}")
+                    report_error(f"Could not save an attachment in {folder.Name}: {exc}")
 
     return saved, skipped, errors
