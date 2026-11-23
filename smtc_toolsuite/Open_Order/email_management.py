@@ -1,12 +1,11 @@
 """Streamlit page for downloading attachments from selected Outlook folders."""
 
 import sys
-from datetime import date
 from pathlib import Path
 
 import streamlit as st
 
-from Open_Order.outlook_mail import list_folders, outlook_namespace, save_attachments
+from Open_Order.outlook_worker_client import run_outlook
 from Open_Order.preferences import load_preferences, save_preferences
 
 
@@ -19,8 +18,7 @@ if sys.platform != "win32":
 
 preferences = load_preferences()
 try:
-    with outlook_namespace() as outlook:
-        available = list_folders(outlook)
+    available = run_outlook({"action": "list"})["folders"]
 except Exception as exc:
     st.error(f"Could not connect to Outlook: {exc}")
     st.stop()
@@ -57,10 +55,13 @@ if st.button("Save attachments", type="primary"):
     else:
         try:
             st.write("Reading Outlook messages...")
-            with outlook_namespace() as outlook:
-                saved, skipped, errors = save_attachments(
-                    outlook, preferences["folders"], target, preferences["since"]
-                )
+            result = run_outlook({
+                "action": "save",
+                "folders": preferences["folders"],
+                "destination": str(target),
+                "since": preferences["since"].isoformat(),
+            })
+            saved, skipped, errors = result["saved"], result["skipped"], result["errors"]
             st.success(f"Saved {saved} attachments to {target}. Skipped {skipped} already saved files.")
             for error in errors:
                 st.warning(error)
