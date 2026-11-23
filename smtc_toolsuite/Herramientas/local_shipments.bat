@@ -1,4 +1,5 @@
 @echo off
+pushd "%~dp0"
 REM Check if Streamlit is installed by trying to import it
 python -c "import streamlit" >nul 2>&1
 if errorlevel 1 (
@@ -7,4 +8,4 @@ if errorlevel 1 (
 )
 
 streamlit run "local_shipments_l.py"
-    
+popd

@@ -24,11 +24,15 @@ clear_to_build = st.Page(
 doc = st.Page(
     "Documentacion/plan_de_manufactura_doc.py", title="Plan de manufactura", icon=":material/edit_calendar:"
 )
+email_management = st.Page(
+    "Open_Order/email_management.py", title="Email management", icon=":material/mail:"
+)
 
 pg = st.navigation(
     {
         "Indice": [scripts_catalog],
         "Herrramientas": [manufacturing_plan, local_shipments, carga_demanda, clear_to_build],
+        "Open Order": [email_management],
         "Documentacion": [doc],
     }
 )

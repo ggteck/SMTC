@@ -1,0 +1,12 @@
+pandas
+openpyxl
+streamlit
+pywin32; platform_system == "Windows"
+
+
+# Notebook and legacy script helpers
+ipython
+ipywidgets
+ipyfilechooser
+tqdm
+requests
