@@ -13,6 +13,7 @@ def defaults():
         "folders": [],
         "destination": "",
         "since": date.today() - timedelta(days=1),
+        "filename_regex": "",
     }
 
 

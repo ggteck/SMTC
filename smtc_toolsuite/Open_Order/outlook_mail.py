@@ -49,10 +49,11 @@ def safe_filename(filename):
     return name or "attachment"
 
 
-def save_attachments(namespace, folder_keys, destination, since):
+def save_attachments(namespace, folder_keys, destination, since, filename_regex=""):
     """Save attachments from direct messages in selected folders; return counts and errors."""
     destination = Path(destination)
     cutoff = datetime.combine(since, datetime.min.time())
+    filename_pattern = re.compile(filename_regex) if filename_regex else None
     saved = skipped = 0
     errors = []
 
@@ -113,7 +114,10 @@ def save_attachments(namespace, folder_keys, destination, since):
             for index in range(1, count + 1):
                 try:
                     attachment = attachments.Item(index)
-                    original = safe_filename(attachment.FileName)
+                    raw_name = ntpath.basename(str(attachment.FileName))
+                    if filename_pattern and not filename_pattern.search(raw_name):
+                        continue
+                    original = safe_filename(raw_name)
                     stem, suffix = ntpath.splitext(original)
                     token = hashlib.sha256(f"{store_id}|{message_id}|{index}".encode()).hexdigest()[:12]
                     filename = f"{stem}_{received:%Y-%m-%d-%H%M%S}_{token}{suffix}"

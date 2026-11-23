@@ -19,6 +19,7 @@ def handle_request(request):
                 request["folders"],
                 request["destination"],
                 date.fromisoformat(request["since"]),
+                request.get("filename_regex", ""),
             )
             return {"saved": saved, "skipped": skipped, "errors": errors}
     raise ValueError(f"Unknown Outlook action: {action}")

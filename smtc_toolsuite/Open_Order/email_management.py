@@ -1,12 +1,26 @@
 """Streamlit page for downloading attachments from selected Outlook folders."""
 
 import sys
+import re
 from pathlib import Path
 
 import streamlit as st
 
 from Open_Order.outlook_worker_client import run_outlook
 from Open_Order.preferences import load_preferences, save_preferences
+
+
+def choose_destination(current):
+    from tkinter import Tk, filedialog
+
+    root = Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        initial = current if current and Path(current).is_dir() else str(Path.home())
+        return filedialog.askdirectory(parent=root, initialdir=initial)
+    finally:
+        root.destroy()
 
 
 st.title("Email management")
@@ -27,26 +41,48 @@ if not available:
     st.warning("No Outlook mail folders are available.")
     st.stop()
 
-with st.form("email_preferences"):
-    selected = st.multiselect(
-        "Mail folders",
-        options=list(available),
-        default=[key for key in preferences["folders"] if key in available],
-        format_func=lambda key: available[key],
-    )
-    destination = st.text_input("Attachment destination folder", value=preferences["destination"])
-    since = st.date_input("Messages received since", value=preferences["since"])
-    submitted = st.form_submit_button("Save preferences")
-
-if submitted:
-    preferences = {"folders": selected, "destination": destination.strip(), "since": since}
+selected = st.multiselect(
+    "Mail folders",
+    options=list(available),
+    default=[key for key in preferences["folders"] if key in available],
+    format_func=lambda key: available[key],
+)
+destination = preferences["destination"]
+if st.button("Choose attachment destination folder"):
     try:
-        save_preferences(preferences)
-        st.success("Preferences saved.")
+        destination = choose_destination(destination) or destination
+    except Exception as exc:
+        st.error(f"Could not open the folder picker: {exc}")
+st.write(f"Destination: {destination or 'No folder selected'}")
+since = st.date_input("Messages received since", value=preferences["since"])
+filename_regex = st.text_input(
+    "Attachment filename regex (optional)",
+    value=preferences["filename_regex"],
+    help="Matches the original attachment filename. Leave blank to download all attachments.",
+)
+try:
+    re.compile(filename_regex)
+    regex_error = None
+except re.error as exc:
+    regex_error = str(exc)
+    st.error(f"Invalid filename regex: {regex_error}")
+
+updated_preferences = {
+    "folders": selected,
+    "destination": destination,
+    "since": since,
+    "filename_regex": filename_regex,
+}
+preference_error = False
+if updated_preferences != preferences:
+    try:
+        save_preferences(updated_preferences)
+        preferences = updated_preferences
     except OSError as exc:
+        preference_error = True
         st.error(f"Could not save preferences: {exc}")
 
-if st.button("Save attachments", type="primary"):
+if st.button("Save attachments", type="primary", disabled=regex_error is not None or preference_error):
     target = Path(preferences["destination"]).expanduser() if preferences["destination"] else None
     if not preferences["folders"]:
         st.error("Select at least one mail folder and save preferences first.")
@@ -60,6 +96,7 @@ if st.button("Save attachments", type="primary"):
                 "folders": preferences["folders"],
                 "destination": str(target),
                 "since": preferences["since"].isoformat(),
+                "filename_regex": preferences["filename_regex"],
             })
             saved, skipped, errors = result["saved"], result["skipped"], result["errors"]
             st.success(f"Saved {saved} attachments to {target}. Skipped {skipped} already saved files.")
